@@ -10,11 +10,7 @@
  */
 
 import { existsSync, readFileSync } from "fs";
-import { resolve } from "path";
-
-const DATA_DIR = process.env.DATA_DIR || "/data";
-const PID_FILE = resolve(DATA_DIR, "server.pid");
-const SERVER_PORT = process.env.SERVER_PORT || "5520";
+import { PID_FILE, SERVER_PORT } from "./config.ts";
 
 /**
  * Check if Java process is running
@@ -66,6 +62,9 @@ async function checkPidFile(): Promise<boolean> {
  * Check if UDP port is listening
  */
 async function checkPort(): Promise<boolean> {
+  // Pattern matches :PORT followed by whitespace or end of line
+  const portPattern = new RegExp(`:${SERVER_PORT}(\\s|$)`);
+
   // Try ss first, fallback to netstat
   try {
     const ssProc = Bun.spawn(["ss", "-uln"], {
@@ -77,9 +76,9 @@ async function checkPort(): Promise<boolean> {
     const exitCode = await ssProc.exited;
 
     if (exitCode === 0) {
-      return output.includes(`:${SERVER_PORT} `);
+      return portPattern.test(output);
     }
-  } catch (error) {
+  } catch {
     // ss not available, try netstat
   }
 
@@ -93,9 +92,9 @@ async function checkPort(): Promise<boolean> {
     const exitCode = await netstatProc.exited;
 
     if (exitCode === 0) {
-      return output.includes(`:${SERVER_PORT} `);
+      return portPattern.test(output);
     }
-  } catch (error) {
+  } catch {
     // Neither available, just check process
   }
 

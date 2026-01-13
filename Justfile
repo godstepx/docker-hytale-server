@@ -17,7 +17,7 @@ help:
     @echo "  build              Build the Docker image"
     @echo "  build-multi        Build multi-platform image and push"
     @echo "  run                Run the container in dry-run mode"
-    @echo "  run-interactive    Run interactive bash shell in container"
+    @echo "  run-interactive    Run interactive shell in container"
     @echo "  test               Run all tests"
     @echo "  lint               Run TypeScript and Dockerfile linters"
     @echo "  lint-ts            Run TypeScript type checking"
@@ -40,7 +40,6 @@ run:
         -p 5520:5520/udp \
         -v ./test-data:/data \
         -e DRY_RUN=true \
-        -e SERVER_URL=https://example.com/hytale-server.jar \
         {{IMAGE_NAME}}:{{IMAGE_TAG}}
 
 # Run interactive shell in container

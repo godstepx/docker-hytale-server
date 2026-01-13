@@ -34,16 +34,12 @@ COPY src/ ./src/
 # Build standalone binaries
 RUN mkdir -p dist && \
     bun build ./src/entrypoint.ts --compile --target=bun-linux-x64-baseline --outfile dist/entrypoint && \
-    bun build ./src/download.ts --compile --target=bun-linux-x64-baseline --outfile dist/download && \
-    bun build ./src/healthcheck.ts --compile --target=bun-linux-x64-baseline --outfile dist/healthcheck && \
-    bun build ./src/generate-config.ts --compile --target=bun-linux-x64-baseline --outfile dist/generate-config
+    bun build ./src/healthcheck.ts --compile --target=bun-linux-x64-baseline --outfile dist/healthcheck
 
 # Verify binaries were created
 RUN ls -lh dist/ && \
     test -f dist/entrypoint && \
-    test -f dist/download && \
-    test -f dist/healthcheck && \
-    test -f dist/generate-config
+    test -f dist/healthcheck
 
 # =============================================================================
 # Stage 2: Base image with minimal dependencies
@@ -78,12 +74,7 @@ WORKDIR /opt/hytale
 
 # Copy compiled binaries from builder
 COPY --from=builder --chmod=755 /build/dist/entrypoint /opt/hytale/bin/entrypoint
-COPY --from=builder --chmod=755 /build/dist/download /opt/hytale/bin/download
 COPY --from=builder --chmod=755 /build/dist/healthcheck /opt/hytale/bin/healthcheck
-COPY --from=builder --chmod=755 /build/dist/generate-config /opt/hytale/bin/generate-config
-
-# Copy templates
-COPY templates/ /opt/hytale/templates/
 
 # Create data directory with correct permissions
 RUN mkdir -p /data /data/logs /data/backups \
@@ -93,11 +84,11 @@ RUN mkdir -p /data /data/logs /data/backups \
 ENV DATA_DIR=/data \
     # Download options
     DOWNLOAD_MODE=auto \
-    HYTALE_CLI_URL="" \
+    HYTALE_CLI_URL="https://downloader.hytale.com/hytale-downloader.zip" \
     LAUNCHER_PATH="" \
     HYTALE_PATCHLINE=release \
     FORCE_DOWNLOAD=false \
-    CHECK_UPDATES=true \
+    CHECK_UPDATES=false \
     # Java options
     JAVA_XMS=1G \
     JAVA_XMX=4G \
@@ -107,8 +98,10 @@ ENV DATA_DIR=/data \
     AUTH_MODE=authenticated \
     ENABLE_BACKUPS=false \
     BACKUP_FREQUENCY=30 \
+    BACKUP_DIR=/data/backups \
     DISABLE_SENTRY=false \
     DRY_RUN=false \
+    LOG_LEVEL=INFO \
     TZ=UTC
 
 # Expose UDP port (QUIC)

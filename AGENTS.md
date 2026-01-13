@@ -26,18 +26,16 @@ the key project concepts and default guidelines. Update as needed.
   - CLI binaries in `/data/.hytale-cli`.
 - AOT cache support: `/data/server/HytaleServer.aot` used if present.
 - Health checks:
-  - `scripts/healthcheck.sh` checks Java process and UDP port 5520.
+  - `/opt/hytale/bin/healthcheck` binary checks Java process and UDP port 5520.
 - Logs: `/data/logs` (PID file: `/data/server.pid`).
 
 ## Repository Layout
 - `Dockerfile`: multi-stage build (Bun compilation + production), env defaults, healthcheck, non-root user.
 - `Justfile`: development task runner (build, test, lint, format, etc.).
 - `src/entrypoint.ts`: main boot flow (download -> start server) - compiled to binary.
-- `src/download.ts`: download/copy server files + version tracking - compiled to binary.
-- `src/generate-config.ts`: JSON config generation from env (template-based) - compiled to binary.
+- `src/download.ts`: download/copy server files + version tracking - imported by entrypoint.
 - `src/healthcheck.ts`: health checks for Docker - compiled to binary.
 - `src/log-utils.ts`: logging module (imported by other TypeScript modules).
-- `templates/server-config.template.json`: base config template.
 - `package.json`: Bun project manifest with build scripts.
 - `tsconfig.json`: TypeScript compiler configuration.
 - `README.md`: user-facing usage instructions and env vars.
@@ -45,23 +43,42 @@ the key project concepts and default guidelines. Update as needed.
 
 ## Container Runtime Flow
 1. Entrypoint binary (`/opt/hytale/bin/entrypoint`) sets up `/data` and `/data/server`.
-2. Download binary (`/opt/hytale/bin/download`) ensures server files are present (by mode).
-3. (Optional) config generation via generate-config binary (currently commented out).
-4. Java starts `HytaleServer.jar` with assets and args.
-5. SIGTERM -> graceful shutdown (30s timeout); SIGKILL if needed.
+2. Download module ensures server files are present (by mode: cli, launcher, or manual).
+3. Java starts `HytaleServer.jar` with assets and command-line args.
+4. SIGTERM -> graceful shutdown (30s timeout); SIGKILL if needed.
+5. Hytale manages its own `config.json` files in `/data`.
 
 **Technical Implementation:**
-- All scripts are TypeScript compiled to standalone Bun binaries during Docker build.
+- TypeScript compiled to standalone Bun binaries during Docker build.
+- Only 2 binaries: `entrypoint` (includes download module) and `healthcheck`.
 - Binaries are self-contained (no Node.js/Bun runtime needed in production image).
 - Uses Bun's built-in APIs: `fetch()` for HTTP, native JSON parsing, `fflate` for unzipping.
-- Process management via `Bun.spawn()` for better control and error handling.
+- Process management via `Bun.spawn()` for external commands (Java, Hytale CLI, system utils).
+- Internal modules use standard TypeScript imports (bundled, no process spawning).
+
+## Server Command-Line Flags (Verified)
+All flags documented via `java -jar HytaleServer.jar --help`:
+- `--assets <Path>`: Asset directory
+- `--bind <InetSocketAddress>`: Address to listen on (default: 0.0.0.0:5520)
+- `--auth-mode <authenticated|offline>`: Authentication mode (default: authenticated)
+- `--backup`: Enable automatic backups
+- `--backup-dir <Path>`: Backup directory
+- `--backup-frequency <Integer>`: Backup interval in minutes (default: 30)
+- `--allow-op`: Allow operator commands
+- `--accept-early-plugins`: Acknowledge loading early plugins (unsupported)
+- `--disable-sentry`: Disable crash reporting
+
+**Authentication:** Server authentication happens AFTER startup via console command:
+```/auth login device```
+
+Reference: https://support.hytale.com/hc/en-us/articles/45326769420827
 
 ## Environment Variables (Key)
 - Download: `DOWNLOAD_MODE`, `HYTALE_CLI_URL`, `LAUNCHER_PATH`,
   `HYTALE_PATCHLINE`, `FORCE_DOWNLOAD`, `CHECK_UPDATES`.
 - Java: `JAVA_XMS`, `JAVA_XMX`, `JAVA_OPTS`.
 - Server: `SERVER_PORT`, `BIND_ADDRESS`, `AUTH_MODE`, `DISABLE_SENTRY`,
-  `ENABLE_BACKUPS`, `BACKUP_FREQUENCY`, `BACKUP_DIR`.
+  `ENABLE_BACKUPS`, `BACKUP_FREQUENCY`, `BACKUP_DIR`, `ACCEPT_EARLY_PLUGINS`, `ALLOW_OP`.
 - Logging: `LOG_LEVEL`.
 - Misc: `DRY_RUN`, `TZ`.
 
@@ -69,11 +86,12 @@ the key project concepts and default guidelines. Update as needed.
 - `/data/server/`: server binaries (`HytaleServer.jar`, AOT cache).
 - `/data/Assets.zip`: game assets.
 - `/data/universe/`: world saves.
-- `/data/config.json`: server config (optional).
+- `/data/config.json`: server config (managed by Hytale).
 - `/data/.hytale-cli/`: downloader binaries.
 - `/data/.auth/`: downloader auth cache.
 - `/data/.version`: installed version metadata.
 - `/data/logs/`: server logs.
+- `/data/backups/`: automatic backups (if enabled).
 
 ## Testing / Validation
 - This repo uses `just` as a task runner for common development tasks.
@@ -108,7 +126,6 @@ the key project concepts and default guidelines. Update as needed.
   - `README.md` for user-facing docs.
   - `Dockerfile` env defaults if new vars are added.
   - `src/` TypeScript modules if flow changes.
-- If you add new assets/templates, place them under `templates/`.
 - When adding new TypeScript modules:
   - Import log-utils for consistent logging.
   - Add build script to `package.json` if creating a new binary.
@@ -116,8 +133,7 @@ the key project concepts and default guidelines. Update as needed.
   - Follow existing patterns for error handling and DRY_RUN mode.
 
 ## TODO / Open Areas
-- Config generation is currently disabled in `entrypoint.sh`.
-- Version comparison is not implemented (only prints latest).
+- Version comparison is not implemented (only prints latest available version).
 
 ## Editing This File
 This file is intended to be updated over time. Replace or refine guidelines,

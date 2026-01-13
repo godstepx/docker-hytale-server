@@ -130,14 +130,56 @@ The image handles `SIGTERM` to save world data before exiting.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `JAVA_XMX` | `4G` | Maximum heap size |
-| `JAVA_XMS` | `1G` | Initial heap size |
+| **Download Options** |||
 | `DOWNLOAD_MODE` | `auto` | `auto`, `cli`, `launcher`, or `manual` |
+| `HYTALE_CLI_URL` | `https://downloader.hytale.com/hytale-downloader.zip` | URL to Hytale Downloader CLI |
+| `LAUNCHER_PATH` | - | Path to mounted launcher directory (skips download) |
+| `HYTALE_PATCHLINE` | `release` | `release` or `pre-release` |
+| `FORCE_DOWNLOAD` | `false` | Force re-download even if files exist |
+| `CHECK_UPDATES` | `false` | Check for updates on startup (prints latest version) |
+| `DOWNLOAD_MAX_RETRIES` | `5` | Max retry attempts for CLI download |
+| `DOWNLOAD_INITIAL_BACKOFF` | `2` | Initial backoff seconds between retries |
+| **Java Options** |||
+| `JAVA_XMS` | `1G` | Initial heap size |
+| `JAVA_XMX` | `4G` | Maximum heap size |
+| `JAVA_OPTS` | - | Additional JVM options (space-separated) |
+| **Server Options** |||
 | `SERVER_PORT` | `5520` | UDP port (QUIC) |
+| `BIND_ADDRESS` | `0.0.0.0` | Address to bind the server to |
 | `AUTH_MODE` | `authenticated` | `authenticated` or `offline` |
-| `ENABLE_AOT` | `true` | Enable/Disable AOT cache |
-| `DOWNLOAD_MAX_RETRIES` | `5` | How many times to retry the Hytale downloader before failing |
-| `DOWNLOAD_INITIAL_BACKOFF` | `2` | Initial backoff (seconds) between retries; grows exponentially |
+| `ENABLE_BACKUPS` | `false` | Enable automatic backups |
+| `BACKUP_FREQUENCY` | `30` | Backup interval (minutes) |
+| `BACKUP_DIR` | `/data/backups` | Backup directory |
+| `DISABLE_SENTRY` | `false` | Disable crash reporting |
+| `ACCEPT_EARLY_PLUGINS` | `false` | Enable early plugins (unsupported, may cause stability issues) |
+| `ALLOW_OP` | `false` | Allow operator commands |
+| **Logging & Debug** |||
+| `LOG_LEVEL` | `INFO` | Log level: `DEBUG`, `INFO`, `WARN`, `ERROR` |
+| `DRY_RUN` | `false` | Simulate startup without actually running the server |
+| `DATA_DIR` | `/data` | Base directory for all server data |
+
+### Server Command-Line Flags
+
+All flags are documented in the official Hytale server. To see the complete list:
+
+```bash
+# Note: Server JAR is at /data/server/HytaleServer.jar in a running container
+# To see help, you need server files downloaded first
+docker run --rm -v hytale-data:/data ghcr.io/godstepx/hytale-server:latest java -jar /data/server/HytaleServer.jar --help
+```
+
+**Authentication Modes:**
+- `authenticated` (default): Requires server authentication. Use `/auth login device` in console after first startup
+- `offline`: No authentication required (for testing only)
+
+**Backup Configuration:**
+Set `ENABLE_BACKUPS=true` to enable automatic backups. Backups are saved to `/data/backups` by default every 30 minutes. Adjust with `BACKUP_FREQUENCY` and `BACKUP_DIR`.
+
+**Operator Commands:**
+Set `ALLOW_OP=true` to enable operator commands on the server.
+
+**Early Plugins (Unsupported):**
+Set `ACCEPT_EARLY_PLUGINS=true` to acknowledge loading early plugins. This is unsupported and may cause stability issues.
 
 ### Token Passthrough (GSP/Advanced)
 
@@ -161,6 +203,22 @@ For token acquisition, see the [Server Provider Authentication Guide](https://su
 - `/data` - Everything persistent (Worlds, Configs, Logs, Auth)
   - `/data/server.input` - Named pipe for console commands
   - `/data/universe/` - World saves
+  - `/data/config.json` - Server configuration (managed by Hytale)
+  - `/data/.hytale-cli/` - Downloader CLI (if used)
+  - `/data/.auth/` - CLI auth cache
+  - `/data/backups/` - Automatic backups (if enabled)
+
+## Updating
+
+### Check for Updates
+```bash
+docker run --rm -v hytale-data:/data -e FORCE_DOWNLOAD=true ghcr.io/godstepx/hytale-server:latest
+```
+
+### View Installed Version
+```bash
+docker run --rm -v hytale-data:/data alpine cat /data/.version
+```
 
 ## Development
 
@@ -221,9 +279,8 @@ The server scripts are written in TypeScript (in `src/`) and compiled to standal
 bun install
 
 # Run scripts directly with Bun (for testing)
-bun run src/entrypoint.ts
-bun run src/download.ts
-bun run src/healthcheck.ts
+bun run src/entrypoint.ts    # Main entrypoint (includes download)
+bun run src/healthcheck.ts   # Health check script
 
 # Build binaries locally
 bun run build

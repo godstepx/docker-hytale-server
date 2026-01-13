@@ -5,18 +5,11 @@
  *   1. MANUAL: User provides files via volume mount (no auth needed)
  *   2. CLI: Official Hytale Downloader CLI with OAuth2 (recommended)
  *   3. LAUNCHER_PATH: Copy from local Hytale launcher installation
- *
- * Environment Variables:
- *   DOWNLOAD_MODE: manual|cli|launcher|auto (default: auto)
- *   HYTALE_CLI_URL: Override CLI download URL
- *   LAUNCHER_PATH: Path to local Hytale launcher installation
- *
- * Usage: download.ts
  */
 
 import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, rmSync } from "fs";
-import { resolve, basename } from "path";
-import { readdir, cp } from "fs/promises";
+import { resolve as resolvePath, basename } from "path";
+import { cp } from "fs/promises";
 import { unzip } from "fflate";
 import {
   logInfo,
@@ -26,35 +19,29 @@ import {
   logSeparator,
   die,
 } from "./log-utils.ts";
-
-// Configuration
-const DATA_DIR = process.env.DATA_DIR || "/data";
-const CLI_DIR = resolve(DATA_DIR, ".hytale-cli");
-const AUTH_CACHE = resolve(DATA_DIR, ".auth");
-const SERVER_DIR = resolve(DATA_DIR, "server");
-const ASSETS_FILE = resolve(DATA_DIR, "Assets.zip");
-const VERSION_FILE = resolve(DATA_DIR, ".version");
-
-// Download mode: manual, cli, launcher, auto
-const DOWNLOAD_MODE = process.env.DOWNLOAD_MODE || "auto";
-
-// Hytale CLI download URL (Linux & Windows)
-const CLI_DOWNLOAD_URL =
-  process.env.HYTALE_CLI_URL || "https://downloader.hytale.com/hytale-downloader.zip";
-
-// Launcher installation paths (for copying files)
-const LAUNCHER_PATH = process.env.LAUNCHER_PATH || "";
-
-// Download settings
-const MAX_RETRIES = parseInt(process.env.DOWNLOAD_MAX_RETRIES || "5", 10);
-const INITIAL_BACKOFF = parseInt(process.env.DOWNLOAD_INITIAL_BACKOFF || "2", 10);
-const PATCHLINE = process.env.HYTALE_PATCHLINE || "release";
+import {
+  DATA_DIR,
+  CLI_DIR,
+  AUTH_CACHE,
+  SERVER_DIR,
+  ASSETS_FILE,
+  VERSION_FILE,
+  DOWNLOAD_MODE,
+  HYTALE_CLI_URL,
+  LAUNCHER_PATH,
+  DOWNLOAD_MAX_RETRIES,
+  DOWNLOAD_INITIAL_BACKOFF,
+  HYTALE_PATCHLINE,
+  FORCE_DOWNLOAD,
+  CHECK_UPDATES,
+  DRY_RUN,
+} from "./config.ts";
 
 /**
  * Calculate exponential backoff with jitter
  */
 function calculateBackoff(attempt: number): number {
-  const baseBackoff = INITIAL_BACKOFF * Math.pow(2, attempt - 1);
+  const baseBackoff = DOWNLOAD_INITIAL_BACKOFF * Math.pow(2, attempt - 1);
   const jitter = Math.floor(Math.random() * 5);
   return baseBackoff + jitter;
 }
@@ -64,9 +51,9 @@ function calculateBackoff(attempt: number): number {
  */
 function detectCliBinary(): string | null {
   const candidates = [
-    resolve(CLI_DIR, "hytale-downloader-linux-amd64"),
-    resolve(CLI_DIR, "hytale-downloader-linux-arm64"),
-    resolve(CLI_DIR, "hytale-downloader"),
+    resolvePath(CLI_DIR, "hytale-downloader-linux-amd64"),
+    resolvePath(CLI_DIR, "hytale-downloader-linux-arm64"),
+    resolvePath(CLI_DIR, "hytale-downloader"),
   ];
 
   for (const candidate of candidates) {
@@ -93,8 +80,8 @@ async function unzipBuffer(buffer: Uint8Array, targetDir: string): Promise<void>
         mkdirSync(targetDir, { recursive: true });
 
         for (const [filename, data] of Object.entries(unzipped)) {
-          const filePath = resolve(targetDir, filename);
-          const fileDir = resolve(filePath, "..");
+          const filePath = resolvePath(targetDir, filename);
+          const fileDir = resolvePath(filePath, "..");
 
           // Create directory if needed
           mkdirSync(fileDir, { recursive: true });
@@ -109,7 +96,6 @@ async function unzipBuffer(buffer: Uint8Array, targetDir: string): Promise<void>
             filename.endsWith(".bin")
           ) {
             try {
-              Bun.file(filePath).writer().flush();
               const proc = Bun.spawnSync(["chmod", "+x", filePath]);
               if (proc.exitCode !== 0) {
                 logWarn(`Failed to make ${filename} executable`);
@@ -137,11 +123,11 @@ async function downloadCli(): Promise<void> {
   mkdirSync(CLI_DIR, { recursive: true });
 
   let attempt = 1;
-  while (attempt <= MAX_RETRIES) {
-    logInfo(`Download attempt ${attempt}/${MAX_RETRIES}...`);
+  while (attempt <= DOWNLOAD_MAX_RETRIES) {
+    logInfo(`Download attempt ${attempt}/${DOWNLOAD_MAX_RETRIES}...`);
 
     try {
-      const response = await fetch(CLI_DOWNLOAD_URL);
+      const response = await fetch(HYTALE_CLI_URL);
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -168,7 +154,7 @@ async function downloadCli(): Promise<void> {
     }
   }
 
-  die(`Failed to download Hytale CLI after ${MAX_RETRIES} attempts`);
+  die(`Failed to download Hytale CLI after ${DOWNLOAD_MAX_RETRIES} attempts`);
 }
 
 /**
@@ -192,20 +178,6 @@ async function ensureCli(): Promise<void> {
     await downloadCli();
   } else {
     logDebug(`CLI already present at ${binary}`);
-
-    // Optional: Check for CLI updates
-    if (process.env.SKIP_CLI_UPDATE_CHECK !== "true") {
-      logDebug("Checking for CLI updates...");
-      try {
-        const proc = Bun.spawn([binary, "-check-update"], {
-          stdout: "ignore",
-          stderr: "ignore",
-        });
-        await proc.exited;
-      } catch (error) {
-        // Ignore errors in update check
-      }
-    }
   }
 }
 
@@ -213,17 +185,17 @@ async function ensureCli(): Promise<void> {
  * Check if existing server files are present
  */
 function checkExistingFiles(): boolean {
-  const serverJar = resolve(SERVER_DIR, "HytaleServer.jar");
+  const serverJar = resolvePath(SERVER_DIR, "HytaleServer.jar");
 
   if (existsSync(serverJar) && existsSync(ASSETS_FILE)) {
     logInfo("Server files already exist");
 
-    if (process.env.FORCE_DOWNLOAD === "true") {
+    if (FORCE_DOWNLOAD) {
       logInfo("FORCE_DOWNLOAD=true, re-downloading...");
       return false;
     }
 
-    if (process.env.CHECK_UPDATES === "true") {
+    if (CHECK_UPDATES) {
       const cliBin = detectCliBinary();
       if (cliBin) {
         logInfo("Checking for updates...");
@@ -259,12 +231,12 @@ async function downloadServerFiles(): Promise<void> {
   process.env.HOME = AUTH_CACHE;
   process.env.XDG_CONFIG_HOME = AUTH_CACHE;
 
-  const downloadPath = resolve(DATA_DIR, "game.zip");
+  const downloadPath = resolvePath(DATA_DIR, "game.zip");
   const downloadArgs = ["-download-path", downloadPath];
 
   // Add patchline if not release
-  if (PATCHLINE !== "release") {
-    downloadArgs.push("-patchline", PATCHLINE);
+  if (HYTALE_PATCHLINE !== "release") {
+    downloadArgs.push("-patchline", HYTALE_PATCHLINE);
   }
 
   logSeparator();
@@ -295,11 +267,11 @@ async function downloadServerFiles(): Promise<void> {
     const buffer = new Uint8Array(await Bun.file(downloadPath).arrayBuffer());
 
     // Extract to temp directory first
-    const tempDir = resolve(DATA_DIR, "temp-extract");
+    const tempDir = resolvePath(DATA_DIR, "temp-extract");
     await unzipBuffer(buffer, tempDir);
 
     // Move files to expected locations
-    const serverSrcDir = resolve(tempDir, "Server");
+    const serverSrcDir = resolvePath(tempDir, "Server");
     if (existsSync(serverSrcDir)) {
       // Remove old server dir if it exists
       if (existsSync(SERVER_DIR)) {
@@ -308,7 +280,7 @@ async function downloadServerFiles(): Promise<void> {
       await cp(serverSrcDir, SERVER_DIR, { recursive: true });
     }
 
-    const assetsSrc = resolve(tempDir, "Assets.zip");
+    const assetsSrc = resolvePath(tempDir, "Assets.zip");
     if (existsSync(assetsSrc)) {
       copyFileSync(assetsSrc, ASSETS_FILE);
     }
@@ -345,7 +317,7 @@ function saveVersionInfo(source: string): void {
   const versionInfo = {
     version,
     source,
-    patchline: PATCHLINE,
+    patchline: HYTALE_PATCHLINE,
     downloaded_at: new Date().toISOString(),
   };
 
@@ -392,7 +364,7 @@ function showManualInstructions(): void {
   logInfo("Option 2: Use Hytale Downloader CLI");
   logInfo("  Set HYTALE_CLI_URL environment variable to the CLI download URL");
   logInfo(
-    "  (Get URL from: https://support.hytale.com/hc/en-us/articles/Hytale-Server-Manual)"
+    "  (Get URL from: https://support.hytale.com/hc/en-us/articles/45326769420827-Hytale-Server-Manual)"
   );
   logInfo("");
   logInfo("Option 3: Mount launcher directory directly");
@@ -415,8 +387,8 @@ async function copyFromLauncher(): Promise<boolean> {
 
   logInfo(`Copying server files from launcher: ${LAUNCHER_PATH}`);
 
-  const launcherServer = resolve(LAUNCHER_PATH, "Server");
-  const launcherAssets = resolve(LAUNCHER_PATH, "Assets.zip");
+  const launcherServer = resolvePath(LAUNCHER_PATH, "Server");
+  const launcherAssets = resolvePath(LAUNCHER_PATH, "Assets.zip");
 
   if (!existsSync(launcherServer)) {
     logError(`Server directory not found at: ${launcherServer}`);
@@ -446,20 +418,21 @@ async function copyFromLauncher(): Promise<boolean> {
 }
 
 /**
- * Main
+ * Main entry point for download module
+ * Can be called directly or imported by other modules
  */
-async function main(): Promise<void> {
+export async function ensureServerFiles(): Promise<void> {
   logInfo("Hytale Server File Manager");
   logInfo("==========================");
   logInfo(`Mode: ${DOWNLOAD_MODE}`);
 
   // DRY_RUN mode
-  if (process.env.DRY_RUN === "true") {
+  if (DRY_RUN) {
     logInfo("[DRY_RUN] Would obtain Hytale server files");
     logInfo(`[DRY_RUN] Download mode: ${DOWNLOAD_MODE}`);
-    logInfo(`[DRY_RUN] CLI URL: ${CLI_DOWNLOAD_URL || "<not set>"}`);
+    logInfo(`[DRY_RUN] CLI URL: ${HYTALE_CLI_URL || "<not set>"}`);
     logInfo(`[DRY_RUN] Launcher path: ${LAUNCHER_PATH || "<not set>"}`);
-    logInfo(`[DRY_RUN] Patchline: ${PATCHLINE}`);
+    logInfo(`[DRY_RUN] Patchline: ${HYTALE_PATCHLINE}`);
     logInfo(`[DRY_RUN] Server dir: ${SERVER_DIR}`);
     logInfo(`[DRY_RUN] Assets: ${ASSETS_FILE}`);
     return;
@@ -480,7 +453,6 @@ async function main(): Promise<void> {
     case "manual":
       showManualInstructions();
       die("Server files must be provided manually. See instructions above.");
-      break;
 
     case "launcher":
       if (await copyFromLauncher()) {
@@ -489,15 +461,8 @@ async function main(): Promise<void> {
       } else {
         die("Failed to copy from launcher. Check LAUNCHER_PATH.");
       }
-      break;
 
     case "cli":
-      if (!CLI_DOWNLOAD_URL) {
-        logError("HYTALE_CLI_URL not set!");
-        logInfo("Get the CLI download URL from the official Hytale Server Manual:");
-        logInfo("https://support.hytale.com/hc/en-us/articles/Hytale-Server-Manual");
-        die("Set HYTALE_CLI_URL environment variable and try again.");
-      }
       await ensureCli();
       await downloadServerFiles();
       break;
@@ -518,7 +483,7 @@ async function main(): Promise<void> {
       }
 
       // 2. Try CLI if URL is set
-      if (CLI_DOWNLOAD_URL) {
+      if (HYTALE_CLI_URL) {
         logInfo("Trying CLI download...");
         await ensureCli();
         await downloadServerFiles();
@@ -529,16 +494,5 @@ async function main(): Promise<void> {
       // 3. No automatic method available - show instructions
       showManualInstructions();
       die("No automatic download method available. See instructions above.");
-      break;
   }
-
-  logInfo("Server files ready!");
-}
-
-// Run main if executed directly
-if (import.meta.main) {
-  main().catch((error) => {
-    logError(`Download failed: ${error}`);
-    process.exit(1);
-  });
 }

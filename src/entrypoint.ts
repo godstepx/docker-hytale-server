@@ -3,23 +3,37 @@
  * Hytale Server Entrypoint
  * Main entrypoint script that orchestrates:
  * 1. Server binary download via official Hytale CLI
- * 2. Configuration generation
- * 3. Server startup with proper signal handling
+ * 2. Server startup with proper signal handling
+ *
+ * Note: Hytale manages its own config.json files.
+ * See official docs: https://support.hytale.com/hc/en-us/articles/45326769420827
  */
 
 import { existsSync, mkdirSync, writeFileSync, unlinkSync } from "fs";
-import { resolve } from "path";
 import { logInfo, logWarn, logBanner, die } from "./log-utils.ts";
-
-// Configuration
-const DATA_DIR = process.env.DATA_DIR || "/data";
-const SERVER_DIR = resolve(DATA_DIR, "server");
-const SERVER_JAR = resolve(SERVER_DIR, "HytaleServer.jar");
-const ASSETS_FILE = resolve(DATA_DIR, "Assets.zip");
-const CONFIG_FILE = resolve(DATA_DIR, "config.json");
-const PID_FILE = resolve(DATA_DIR, "server.pid");
-const LOG_DIR = resolve(DATA_DIR, "logs");
-const AOT_CACHE = resolve(SERVER_DIR, "HytaleServer.aot");
+import { ensureServerFiles } from "./download.ts";
+import {
+  DATA_DIR,
+  SERVER_DIR,
+  SERVER_JAR,
+  ASSETS_FILE,
+  PID_FILE,
+  LOG_DIR,
+  AOT_CACHE,
+  JAVA_XMS,
+  JAVA_XMX,
+  JAVA_OPTS,
+  BIND_ADDRESS,
+  SERVER_PORT,
+  AUTH_MODE,
+  DISABLE_SENTRY,
+  ACCEPT_EARLY_PLUGINS,
+  ALLOW_OP,
+  ENABLE_BACKUPS,
+  BACKUP_DIR,
+  BACKUP_FREQUENCY,
+  DRY_RUN,
+} from "./config.ts";
 
 // Server process
 let serverProcess: ReturnType<typeof Bun.spawn> | null = null;
@@ -80,60 +94,26 @@ async function cleanup(): Promise<void> {
  */
 function setupSignalHandlers(): void {
   process.on("SIGTERM", () => {
-    cleanup();
+    void cleanup();
   });
 
   process.on("SIGINT", () => {
-    cleanup();
+    void cleanup();
   });
 
   process.on("SIGHUP", () => {
-    cleanup();
+    void cleanup();
   });
 }
 
 /**
- * Download server files
+ * Download server files by calling the download module
  */
 async function downloadServer(): Promise<void> {
-  logInfo("Checking server files...");
-
-  const downloadBinary = resolve(import.meta.dir, "download.ts");
-
-  const proc = Bun.spawn(["bun", "run", downloadBinary], {
-    stdout: "inherit",
-    stderr: "inherit",
-    stdin: "inherit",
-    env: process.env as Record<string, string>,
-  });
-
-  const exitCode = await proc.exited;
-
-  if (exitCode !== 0) {
-    die("Server file download failed");
-  }
-}
-
-/**
- * Generate configuration
- */
-async function generateConfiguration(): Promise<void> {
-  logInfo("Generating server configuration...");
-
-  process.env.CONFIG_OUTPUT = CONFIG_FILE;
-
-  const configBinary = resolve(import.meta.dir, "generate-config.ts");
-
-  const proc = Bun.spawn(["bun", "run", configBinary], {
-    stdout: "inherit",
-    stderr: "inherit",
-    env: process.env as Record<string, string>,
-  });
-
-  const exitCode = await proc.exited;
-
-  if (exitCode !== 0) {
-    die("Configuration generation failed");
+  try {
+    await ensureServerFiles();
+  } catch (error) {
+    die(`Server file download failed: ${error}`);
   }
 }
 
@@ -144,9 +124,7 @@ function buildJavaArgs(): string[] {
   const args: string[] = [];
 
   // Memory settings
-  const xms = process.env.JAVA_XMS || "1G";
-  const xmx = process.env.JAVA_XMX || "4G";
-  args.push(`-Xms${xms}`, `-Xmx${xmx}`);
+  args.push(`-Xms${JAVA_XMS}`, `-Xmx${JAVA_XMX}`);
 
   // Use AOT cache if available (faster startup)
   if (existsSync(AOT_CACHE)) {
@@ -177,8 +155,8 @@ function buildJavaArgs(): string[] {
   );
 
   // Extra JVM options from environment
-  if (process.env.JAVA_OPTS) {
-    const extraOpts = process.env.JAVA_OPTS.split(" ").filter((opt) => opt.trim().length > 0);
+  if (JAVA_OPTS) {
+    const extraOpts = JAVA_OPTS.split(" ").filter((opt) => opt.trim().length > 0);
     args.push(...extraOpts);
   }
 
@@ -189,40 +167,33 @@ function buildJavaArgs(): string[] {
   args.push("--assets", ASSETS_FILE);
 
   // Bind address
-  const bindAddr = process.env.BIND_ADDRESS || "0.0.0.0";
-  const port = process.env.SERVER_PORT || "5520";
-  args.push("--bind", `${bindAddr}:${port}`);
+  args.push("--bind", `${BIND_ADDRESS}:${SERVER_PORT}`);
 
   // Auth mode
-  const authMode = process.env.AUTH_MODE || "authenticated";
-  args.push("--auth-mode", authMode);
+  args.push("--auth-mode", AUTH_MODE);
 
-  // Disable sentry in dev mode
-  if (process.env.DISABLE_SENTRY === "true") {
+  // Disable sentry
+  if (DISABLE_SENTRY) {
     args.push("--disable-sentry");
   }
 
   // Accept early plugins (unsupported)
-  if (process.env.ACCEPT_EARLY_PLUGINS === "true") {
+  if (ACCEPT_EARLY_PLUGINS) {
     logWarn("Early plugins enabled - this is unsupported and may cause stability issues");
     args.push("--accept-early-plugins");
   }
 
   // Allow operator commands
-  if (process.env.ALLOW_OP === "true") {
+  if (ALLOW_OP) {
     args.push("--allow-op");
   }
 
   // Backups
-  if (process.env.ENABLE_BACKUPS === "true") {
+  if (ENABLE_BACKUPS) {
     args.push("--backup");
-    args.push("--backup-dir", process.env.BACKUP_DIR || "/data/backups");
-    args.push("--backup-frequency", process.env.BACKUP_FREQUENCY || "30");
-    logInfo(
-      `Backups enabled: every ${process.env.BACKUP_FREQUENCY || "30"} minutes to ${
-        process.env.BACKUP_DIR || "/data/backups"
-      }`
-    );
+    args.push("--backup-dir", BACKUP_DIR);
+    args.push("--backup-frequency", BACKUP_FREQUENCY);
+    logInfo(`Backups enabled: every ${BACKUP_FREQUENCY} minutes to ${BACKUP_DIR}`);
   }
 
   return args;
@@ -248,7 +219,7 @@ async function startServer(): Promise<void> {
 
   logInfo(`Java command: java ${javaArgs.join(" ")}`);
 
-  if (process.env.DRY_RUN === "true") {
+  if (DRY_RUN) {
     logInfo(`[DRY_RUN] Would start server with: java ${javaArgs.join(" ")}`);
     logInfo("[DRY_RUN] Entrypoint complete, exiting.");
     process.exit(0);
@@ -257,12 +228,11 @@ async function startServer(): Promise<void> {
   // Change to data directory
   process.chdir(DATA_DIR);
 
-  // Start server
+  // Start server - pass through current environment
   serverProcess = Bun.spawn(["java", ...javaArgs], {
     stdout: "inherit",
     stderr: "inherit",
     stdin: "inherit",
-    env: process.env as Record<string, string>,
   });
 
   // Save PID
@@ -302,10 +272,7 @@ async function main(): Promise<void> {
   // Phase 1: Download server files (via Hytale CLI)
   await downloadServer();
 
-  // Phase 2: Generate configuration (optional - Hytale uses its own config)
-  // await generateConfiguration();
-
-  // Phase 3: Start server
+  // Phase 2: Start server
   await startServer();
 }
 
