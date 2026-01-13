@@ -212,9 +212,30 @@ download_server_files() {
     cli_bin=$(get_cli_binary)
     
     # Run the CLI - it will handle auth interactively
-    if ! "$cli_bin" "${download_args[@]}"; then
+    # We use a temporary file to capture output for URL extraction while still showing it to the user
+    local log_file
+    log_file=$(mktemp)
+    
+    # Run the CLI, tee output to log_file for extraction
+    if ! "$cli_bin" "${download_args[@]}" 2>&1 | tee "$log_file"; then
+        # Check if it was an auth failure
+        if grep -q "authenticate" "$log_file"; then
+            local auth_url
+            auth_url=$(grep -oE "https://oauth.accounts.hytale.com[^\s]*" "$log_file" | head -n 1)
+            if [[ -n "$auth_url" ]]; then
+                echo "$auth_url" > "${DATA_DIR}/AUTH_LINK.url"
+                log_info "Auth URL exported to ${DATA_DIR}/AUTH_LINK.url"
+            fi
+        fi
+        rm -f "$log_file"
         die "Hytale Downloader failed. Please check the output above."
     fi
+    
+    # If successful, clear any old auth link file
+    if [[ -f "${DATA_DIR}/AUTH_LINK.url" ]]; then
+        printf "" > "${DATA_DIR}/AUTH_LINK.url" 2>/dev/null || true
+    fi
+    rm -f "$log_file"
     
     log_info "Download complete, extracting..."
     
@@ -226,7 +247,10 @@ download_server_files() {
         
         # Move files to expected locations
         if [[ -d "${DATA_DIR}/Server" ]]; then
-            mv "${DATA_DIR}/Server" "$SERVER_DIR"
+            log_info "Moving Server files from ${DATA_DIR}/Server to ${SERVER_DIR}..."
+            # Move contents, not the directory itself, to avoid nesting
+            cp -r "${DATA_DIR}/Server"/. "$SERVER_DIR"/
+            rm -rf "${DATA_DIR}/Server"
         fi
         if [[ -f "${DATA_DIR}/Assets.zip" ]]; then
             # Already in the right place

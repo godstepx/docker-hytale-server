@@ -27,6 +27,8 @@ RUN apk add --no-cache \
     jq \
     tini \
     unzip \
+    gcompat \
+    libgcc \
     && rm -rf /var/cache/apk/*
 
 # =============================================================================

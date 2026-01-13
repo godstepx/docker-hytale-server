@@ -26,6 +26,8 @@ readonly CONFIG_FILE="${DATA_DIR}/config.json"
 readonly PID_FILE="${DATA_DIR}/server.pid"
 readonly LOG_DIR="${DATA_DIR}/logs"
 readonly AOT_CACHE="${SERVER_DIR}/HytaleServer.aot"
+readonly INPUT_PIPE="${DATA_DIR}/server.input"
+readonly SERVER_AUTH_LINK="${DATA_DIR}/SERVER_AUTH.url"
 
 # Server process PID
 SERVER_PID=""
@@ -195,15 +197,54 @@ start_server() {
         exit 0
     fi
     
-    # Start server in background
+    # Create input pipe if it doesn't exist
+    if [[ ! -p "$INPUT_PIPE" ]]; then
+        mkfifo "$INPUT_PIPE"
+        chown hytale:hytale "$INPUT_PIPE"
+        chmod 660 "$INPUT_PIPE"
+    fi
+
+    # Start server in background with input from pipe
     cd "$DATA_DIR"
     
-    # shellcheck disable=SC2086
-    java $java_args &
+    # We use a helper process to keep the pipe open
+    tail -f "$INPUT_PIPE" | java $java_args &
     SERVER_PID=$!
     
     echo "$SERVER_PID" > "$PID_FILE"
     log_info "Server started with PID: $SERVER_PID"
+
+    # Trigger auto-auth if required
+    # This is a basic implementation that waits a bit and sends the command
+    (
+        sleep 10
+        # Check if we should try to login
+        if [[ "${AUTO_AUTH:-true}" == "true" ]]; then
+            log_info "Auto-triggering server authentication..."
+            echo "/auth login device" > "$INPUT_PIPE"
+        fi
+    ) &
+
+    # Capture auth link from logs in the background
+    (
+        local auth_found=false
+        while [[ "$auth_found" == "false" ]]; do
+            # Look for the most recent log file
+            local latest_log
+            latest_log=$(ls -t "${LOG_DIR}"/*.log 2>/dev/null | head -n 1)
+            
+            if [[ -n "$latest_log" ]]; then
+                local url
+                url=$(grep -oE "https://oauth.accounts.hytale.com[^\s]*" "$latest_log" | tail -n 1)
+                if [[ -n "$url" ]]; then
+                    echo "$url" > "$SERVER_AUTH_LINK"
+                    log_info "Server Auth URL captured to $SERVER_AUTH_LINK"
+                    auth_found=true
+                fi
+            fi
+            sleep 5
+        done
+    ) &
     
     # Wait for server process
     wait "$SERVER_PID"

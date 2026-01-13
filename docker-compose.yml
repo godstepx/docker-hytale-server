@@ -1,0 +1,24 @@
+services:
+  hytale:
+    build: .
+    container_name: hytale-server
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    ports:
+      - "5520:5520/udp"
+    volumes:
+      - hytale-data:/data
+      # Export the auth link to the local directory for visibility
+      - ./AUTH_LINK.url:/data/AUTH_LINK.url
+      - ./SERVER_AUTH.url:/data/SERVER_AUTH.url
+    environment:
+      - JAVA_XMS=1G
+      - JAVA_XMX=4G
+      # For first-time setup via CLI, you may need to run interactively:
+      # docker-compose run hytale
+      - DOWNLOAD_MODE=auto
+      - CHECK_UPDATES=false
+
+volumes:
+  hytale-data:
