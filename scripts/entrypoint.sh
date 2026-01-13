@@ -236,63 +236,42 @@ start_server() {
     echo "$SERVER_PID" > "$PID_FILE"
     log_info "Server started with PID: $SERVER_PID"
 
-    # Trigger auto-auth if required
+    # Background monitor for auth requirements and persistence
     (
-        if [[ "${AUTO_AUTH:-true}" == "true" ]]; then
-            log_info "Monitoring for authentication requirements..."
-            local auth_triggered=false
-            local timeout=300 # 5 minutes timeout
-            local count=0
-            
-            while [[ "$auth_triggered" == "false" && $count -lt $timeout ]]; do
-                local latest_log
-                latest_log=$(ls -t "${LOG_DIR}"/*.log 2>/dev/null | head -n 1)
-                
-                if [[ -n "$latest_log" ]]; then
-                    if grep -i "Server session token not available" "$latest_log"; then
-                        log_info "Server requires authentication. Auto-triggering..."
-                        echo "/auth login device" > "$INPUT_PIPE"
-                        auth_triggered=true
-                    fi
-                fi
-                sleep 5
-                count=$((count + 5))
-            done
-            
-            if [[ "$auth_triggered" == "false" ]]; then
-                log_info "No authentication request detected within timeout or already authenticated."
+        local auth_triggered=false
+        local persistence_set=false
+        
+        # Give server time to start
+        sleep 10
+        
+        while true; do
+            # Check if server is still running
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+                break
             fi
-        fi
-    ) &
-
-    # Capture auth link from logs in the background
-    (
-        local auth_found=false
-        local login_success=false
-        while [[ "$login_success" == "false" ]]; do
-            # Look for the most recent log file
+            
+            # Look for auth requirement in recent stdout (captured via logs)
             local latest_log
             latest_log=$(ls -t "${LOG_DIR}"/*.log 2>/dev/null | head -n 1)
             
             if [[ -n "$latest_log" ]]; then
-                # Look for Auth URL if not found yet
-                if [[ "$auth_found" == "false" ]]; then
-                    local url
-                    url=$(grep -oE "https://oauth.accounts.hytale.com[^\s]*" "$latest_log" | tail -n 1)
-                    if [[ -n "$url" ]]; then
-                        echo "$url" > "$SERVER_AUTH_LINK"
-                        log_info "Server Auth URL captured to $SERVER_AUTH_LINK"
-                        auth_found=true
-                    fi
+                # Trigger auth if needed (only once)
+                if [[ "$auth_triggered" == "false" ]] && grep -q "Server session token not available" "$latest_log" 2>/dev/null; then
+                    log_info "Server requires authentication. Auto-triggering /auth login device..."
+                    echo "/auth login device" > "$INPUT_PIPE"
+                    auth_triggered=true
                 fi
                 
-                # Check for successful token exchange
-                if grep -q "Successfully obtained access token" "$latest_log"; then
-                    log_info "Server authentication successful! Clearing $SERVER_AUTH_LINK"
-                    : > "$SERVER_AUTH_LINK" || true
-                    login_success=true
+                # Set persistence after successful auth (only once)
+                if [[ "$persistence_set" == "false" ]] && grep -q "Authentication successful" "$latest_log" 2>/dev/null; then
+                    log_info "Auth successful! Setting persistence to Encrypted..."
+                    sleep 2
+                    echo "/auth persistence Encrypted" > "$INPUT_PIPE"
+                    persistence_set=true
+                    log_info "Credentials will now persist across restarts."
                 fi
             fi
+            
             sleep 5
         done
     ) &
