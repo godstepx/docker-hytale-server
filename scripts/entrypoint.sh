@@ -15,6 +15,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/log-utils.sh"
 
 # =============================================================================
+# Fix Volume Permissions (runs as root, then drops privileges)
+# =============================================================================
+
+fix_permissions() {
+    if [[ "$(id -u)" == "0" ]]; then
+        log_info "Fixing volume permissions..."
+        chown -R hytale:hytale /data 2>/dev/null || true
+        chown -R hytale:hytale /opt/hytale 2>/dev/null || true
+        
+        log_info "Dropping privileges to hytale user..."
+        exec su-exec hytale "$0" "$@"
+    fi
+}
+
+# Fix permissions and re-exec as hytale user
+fix_permissions "$@"
+
+# =============================================================================
 # Configuration
 # =============================================================================
 

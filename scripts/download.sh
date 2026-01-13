@@ -167,8 +167,13 @@ check_existing_files() {
             if [[ -n "$cli_bin" ]]; then
                 log_info "Checking for updates..."
                 local current_version
-                current_version=$("$cli_bin" -print-version 2>/dev/null || echo "unknown")
-                log_info "Latest version available: $current_version"
+                # Use timeout to prevent hanging on network issues
+                current_version=$(timeout 10s "$cli_bin" -print-version 2>/dev/null || echo "unknown")
+                if [[ "$current_version" != "unknown" ]]; then
+                    log_info "Latest version available: $current_version"
+                else
+                    log_warn "Could not check for updates (timeout or network issue)"
+                fi
                 # TODO: Compare with installed version
             fi
         fi

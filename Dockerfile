@@ -29,6 +29,7 @@ RUN apk add --no-cache \
     unzip \
     gcompat \
     libgcc \
+    su-exec \
     && rm -rf /var/cache/apk/*
 
 # =============================================================================
@@ -93,10 +94,8 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
 # Use tini as init system for proper signal handling
 ENTRYPOINT ["/sbin/tini", "--"]
 
-# Run as non-root user
-USER hytale
-
-# Start server
+# Start as root to fix volume permissions, then drop to hytale user
+# The entrypoint script handles the user switch
 CMD ["/opt/hytale/scripts/entrypoint.sh"]
 
 # Graceful shutdown

@@ -1,6 +1,7 @@
 services:
   hytale:
     build: .
+    image: ghcr.io/godstepx/docker-hytale-server:latest
     container_name: hytale-server
     restart: unless-stopped
     stdin_open: true
