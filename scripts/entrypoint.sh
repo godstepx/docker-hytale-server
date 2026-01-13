@@ -45,7 +45,6 @@ readonly PID_FILE="${DATA_DIR}/server.pid"
 readonly LOG_DIR="${DATA_DIR}/logs"
 readonly AOT_CACHE="${SERVER_DIR}/HytaleServer.aot"
 readonly INPUT_PIPE="${DATA_DIR}/server.input"
-readonly SERVER_AUTH_LINK="${DATA_DIR}/SERVER_AUTH.url"
 
 # Server process PID
 SERVER_PID=""
