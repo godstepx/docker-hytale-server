@@ -148,12 +148,26 @@ test_dry_run_mode() {
     export SERVER_NAME="Test Server"
     
     output=$("${SCRIPT_DIR}/../scripts/generate-config.sh" 2>&1)
+    exit_code=$?
     
-    if [[ "$output" == *"[DRY_RUN]"* ]] && [[ ! -f "$CONFIG_OUTPUT" ]]; then
-        pass
-    else
-        fail "Dry run mode should not create files"
+    if [[ $exit_code -ne 0 ]]; then
+        fail "Script exited with error code $exit_code"
+        echo "    Output: $output"
+        return
     fi
+    
+    if [[ "$output" != *"[DRY_RUN]"* ]]; then
+        fail "Dry run should output [DRY_RUN] logs"
+        echo "    Output: $output"
+        return
+    fi
+
+    if [[ -f "$CONFIG_OUTPUT" ]]; then
+        fail "Dry run should not create configuration file"
+        return
+    fi
+
+    pass
 }
 
 # =============================================================================
