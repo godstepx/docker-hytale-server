@@ -45,9 +45,22 @@ readonly PID_FILE="${DATA_DIR}/server.pid"
 readonly LOG_DIR="${DATA_DIR}/logs"
 readonly AOT_CACHE="${SERVER_DIR}/HytaleServer.aot"
 readonly INPUT_PIPE="${DATA_DIR}/server.input"
+readonly VERSION_FILE="${DATA_DIR}/.version"
 
 # Server process PID
 SERVER_PID=""
+
+# =============================================================================
+# Version Info
+# =============================================================================
+
+load_version_info() {
+    if [[ -f "$VERSION_FILE" ]]; then
+        local version
+        version=$(jq -r '.version // "unknown"' "$VERSION_FILE" 2>/dev/null || echo "unknown")
+        export HYTALE_VERSION="$version"
+    fi
+}
 
 # =============================================================================
 # Signal Handlers
@@ -239,6 +252,7 @@ start_server() {
     (
         local auth_triggered=false
         local persistence_set=false
+        local auth_trigger_time=0
         
         # Give server time to start
         sleep 10
@@ -255,19 +269,31 @@ start_server() {
             
             if [[ -n "$latest_log" ]]; then
                 # Trigger auth if needed (only once)
-                if [[ "$auth_triggered" == "false" ]] && grep -q "Server session token not available" "$latest_log" 2>/dev/null; then
+                if [[ "$auth_triggered" == "false" ]] && grep -Eq "Server session token not available|No server tokens configured" "$latest_log" 2>/dev/null; then
                     log_info "Server requires authentication. Auto-triggering /auth login device..."
                     echo "/auth login device" > "$INPUT_PIPE"
                     auth_triggered=true
+                    auth_trigger_time=$(date +%s)
                 fi
                 
                 # Set persistence after successful auth (only once)
-                if [[ "$persistence_set" == "false" ]] && grep -q "Authentication successful" "$latest_log" 2>/dev/null; then
+                if [[ "$persistence_set" == "false" ]] && grep -Ei "Authentication.*success" "$latest_log" 2>/dev/null; then
                     log_info "Auth successful! Setting persistence to Encrypted..."
                     sleep 2
                     echo "/auth persistence Encrypted" > "$INPUT_PIPE"
                     persistence_set=true
                     log_info "Credentials will now persist across restarts."
+                fi
+
+                # Fallback: attempt to set persistence shortly after triggering auth
+                if [[ "$persistence_set" == "false" && "$auth_triggered" == "true" ]]; then
+                    local now
+                    now=$(date +%s)
+                    if (( now - auth_trigger_time >= 20 )); then
+                        log_info "Attempting to enable credential persistence..."
+                        echo "/auth persistence Encrypted" > "$INPUT_PIPE"
+                        persistence_set=true
+                    fi
                 fi
             fi
             
@@ -289,6 +315,7 @@ start_server() {
 # =============================================================================
 
 main() {
+    load_version_info
     log_banner
     
     # Setup directories

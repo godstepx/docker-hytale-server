@@ -142,9 +142,16 @@ ensure_cli() {
         # Optional: Check for CLI updates
         if [[ "${SKIP_CLI_UPDATE_CHECK:-false}" != "true" ]]; then
             log_debug "Checking for CLI updates..."
-            "$binary" -check-update 2>/dev/null || true
+            HOME="$AUTH_CACHE" XDG_CONFIG_HOME="$AUTH_CACHE" "$binary" -check-update 2>/dev/null || true
         fi
     fi
+}
+
+# Run CLI and return its stdout with auth cache applied
+run_cli_command() {
+    local cli_bin="$1"
+    shift
+    HOME="$AUTH_CACHE" XDG_CONFIG_HOME="$AUTH_CACHE" "$cli_bin" "$@"
 }
 
 # =============================================================================
@@ -169,7 +176,7 @@ check_existing_files() {
                 log_info "Checking for updates..."
                 local current_version
                 # Use timeout to prevent hanging on network issues
-                current_version=$(timeout 10s "$cli_bin" -print-version 2>/dev/null || echo "unknown")
+                current_version=$(timeout 10s run_cli_command "$cli_bin" -print-version 2>/dev/null || echo "unknown")
                 if [[ "$current_version" != "unknown" ]]; then
                     log_info "Latest version available: $current_version"
                 else
@@ -335,7 +342,7 @@ save_version_info() {
     local cli_bin
     cli_bin=$(detect_cli_binary)
     if [[ -n "$cli_bin" ]]; then
-        version=$("$cli_bin" -print-version 2>/dev/null || echo "unknown")
+        version=$(run_cli_command "$cli_bin" -print-version 2>/dev/null || echo "unknown")
     fi
     
     cat > "$VERSION_FILE" <<EOF
