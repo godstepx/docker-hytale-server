@@ -127,8 +127,8 @@ check_unknown_vars() {
     # Check all HYTALE_ and known config vars
     while IFS='=' read -r name _; do
         # Check if this is a config-related var we should validate
-        if [[ "$name" == HYTALE_* ]] || [[ " ${CONFIG_MAPPINGS[*]} " =~ " ${name}:" ]]; then
-            if [[ ! " $known_vars " =~ " $name " ]]; then
+        if [[ "$name" == HYTALE_* ]] || [[ " ${CONFIG_MAPPINGS[*]} " =~ \ ${name}: ]]; then
+            if [[ ! " $known_vars " =~ \ ${name}\ ]]; then
                 UNKNOWN_VARS+=("$name")
             fi
         fi
