@@ -65,6 +65,10 @@ docker logs -f hytale-server
 If you want to build the image yourself:
 
 ```bash
+# Build with pre-bundled CLI
+just build
+
+# Or manually:
 docker build -t ghcr.io/your-user/docker-hytale-server:latest .
 docker push ghcr.io/your-user/docker-hytale-server:latest
 ```
@@ -154,7 +158,7 @@ The image handles `SIGTERM` to save world data before exiting.
 | `ACCEPT_EARLY_PLUGINS` | `false` | Enable early plugins (unsupported, may cause stability issues) |
 | `ALLOW_OP` | `false` | Allow operator commands |
 | **Logging & Debug** |||
-| `LOG_LEVEL` | `INFO` | Log level: `DEBUG`, `INFO`, `WARN`, `ERROR` |
+| `CONTAINER_LOG_LEVEL` | `INFO` | Container log level: `DEBUG`, `INFO`, `WARN`, `ERROR` |
 | `DRY_RUN` | `false` | Simulate startup without actually running the server |
 | `DATA_DIR` | `/data` | Base directory for all server data |
 
@@ -204,9 +208,12 @@ For token acquisition, see the [Server Provider Authentication Guide](https://su
   - `/data/server.input` - Named pipe for console commands
   - `/data/universe/` - World saves
   - `/data/config.json` - Server configuration (managed by Hytale)
-  - `/data/.hytale-cli/` - Downloader CLI (if used)
-  - `/data/.auth/` - CLI auth cache
+  - `/data/.auth/` - CLI auth cache (OAuth tokens)
   - `/data/backups/` - Automatic backups (if enabled)
+
+### Bundled CLI
+
+The Hytale Downloader CLI is **pre-bundled** in the image at `/opt/hytale/cli/` (read-only). This eliminates the need to download the CLI at runtime. OAuth authentication tokens are still stored in `/data/.auth/` for persistence across container restarts.
 
 ## Updating
 
@@ -236,7 +243,7 @@ Run `just` or `just --list` to see all available recipes:
 
 ```bash
 just                    # Show help
-just build              # Build the Docker image (compiles TypeScript in Docker)
+just build              # Build the Docker image with pre-bundled CLI
 just build-multi        # Build multi-platform image and push to GHCR
 just run                # Run container in dry-run mode for testing
 just run-interactive    # Start interactive shell in container
@@ -279,7 +286,7 @@ The server scripts are written in TypeScript (in `src/`) and compiled to standal
 bun install
 
 # Run scripts directly with Bun (for testing)
-bun run src/entrypoint.ts    # Main entrypoint (includes download)
+bun run src/setup.ts         # Setup script (includes download)
 bun run src/healthcheck.ts   # Health check script
 
 # Build binaries locally

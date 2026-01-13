@@ -9,8 +9,7 @@
  *   1 - Unhealthy
  */
 
-import { existsSync, readFileSync } from "fs";
-import { PID_FILE, SERVER_PORT } from "./config.ts";
+import { SERVER_PORT } from "./config.ts";
 
 /**
  * Check if Java process is running
@@ -23,36 +22,6 @@ async function checkProcess(): Promise<boolean> {
     });
     const exitCode = await proc.exited;
     return exitCode === 0;
-  } catch (error) {
-    return false;
-  }
-}
-
-/**
- * Check PID file if it exists
- */
-async function checkPidFile(): Promise<boolean> {
-  if (!existsSync(PID_FILE)) {
-    // No PID file, check process directly
-    return true;
-  }
-
-  try {
-    const pidStr = readFileSync(PID_FILE, "utf-8").trim();
-    const pid = parseInt(pidStr, 10);
-
-    if (isNaN(pid)) {
-      return false;
-    }
-
-    // Check if process exists by sending signal 0
-    try {
-      process.kill(pid, 0);
-      return true;
-    } catch (error) {
-      // Process doesn't exist
-      return false;
-    }
   } catch (error) {
     return false;
   }
@@ -109,12 +78,6 @@ async function main(): Promise<void> {
   // Check process is running
   if (!(await checkProcess())) {
     console.error("UNHEALTHY: Java process not running");
-    process.exit(1);
-  }
-
-  // Check PID file
-  if (!(await checkPidFile())) {
-    console.error("UNHEALTHY: PID file exists but process not running");
     process.exit(1);
   }
 

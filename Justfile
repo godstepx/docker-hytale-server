@@ -23,16 +23,11 @@ help:
     @echo "  lint-ts            Run TypeScript type checking"
     @echo "  clean              Remove built images and test data"
 
-# Build the Docker image
+# Build
 build:
-    docker build -t {{IMAGE_NAME}}:{{IMAGE_TAG}} .
-
-# Build multi-platform image and push to registry
-build-multi:
     docker buildx build \
         --platform linux/amd64,linux/arm64 \
-        -t {{IMAGE_NAME}}:{{IMAGE_TAG}} \
-        --push .
+        -t {{IMAGE_NAME}}:{{IMAGE_TAG}} .
 
 # Run the container in dry-run mode
 run:
@@ -50,7 +45,7 @@ run-interactive:
         {{IMAGE_NAME}}:{{IMAGE_TAG}}
 
 # Run all tests
-test: lint-ts test-integration
+test: lint-ts
     @echo "All tests passed!"
 
 # Run TypeScript type checking
@@ -58,16 +53,6 @@ test: lint-ts test-integration
 lint-ts:
     @echo "Running TypeScript type checking..."
     bun run lint
-
-# Run integration tests
-[private]
-test-integration:
-    @echo "Running integration tests..."
-    @if [ -f tests/test-integration.sh ]; then \
-        ./tests/test-integration.sh; \
-    else \
-        echo "Integration tests not yet updated for TypeScript binaries"; \
-    fi
 
 # Run linters (TypeScript and hadolint)
 lint: lint-ts

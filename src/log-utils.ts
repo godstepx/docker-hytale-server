@@ -12,8 +12,9 @@ export enum LogLevel {
 }
 
 // ANSI color codes (disabled if not a TTY - check stderr since that's where we write)
-const isTTY = Bun.stderr.isTTY;
+const isTTY = process.stderr.isTTY ?? false;
 const COLOR_RESET = isTTY ? "\x1b[0m" : "";
+const COLOR_DIM = isTTY ? "\x1b[2m" : "";    // Dim/gray for timestamp
 const COLOR_DEBUG = isTTY ? "\x1b[0;36m" : ""; // Cyan
 const COLOR_INFO = isTTY ? "\x1b[0;32m" : ""; // Green
 const COLOR_WARN = isTTY ? "\x1b[0;33m" : ""; // Yellow
@@ -26,7 +27,7 @@ let currentLogLevel = LogLevel.INFO;
  * Set the current log level from environment variable or default
  */
 export function initLogLevel(): void {
-  const logLevelEnv = process.env.LOG_LEVEL?.toUpperCase();
+  const logLevelEnv = process.env.CONTAINER_LOG_LEVEL?.toUpperCase();
   switch (logLevelEnv) {
     case "DEBUG":
       currentLogLevel = LogLevel.DEBUG;
@@ -54,9 +55,9 @@ function log(level: LogLevel, levelName: string, color: string, message: string)
     return;
   }
 
-  // Format: [TIMESTAMP] [LEVEL] message
+  // Format: [TIMESTAMP] [LEVEL] message - timestamp is dim, level is colored
   const timestamp = new Date().toISOString().replace("T", " ").substring(0, 19);
-  const formattedMessage = `${color}[${timestamp}] [${levelName.padEnd(5)}] ${message}${COLOR_RESET}\n`;
+  const formattedMessage = `${COLOR_DIM}[${timestamp}]${COLOR_RESET} ${color}[${levelName.padEnd(5)}]${COLOR_RESET} ${message}\n`;
 
   // Write to stderr for logging
   Bun.write(Bun.stderr, formattedMessage);
@@ -100,12 +101,10 @@ export function logSeparator(): void {
  * Print startup banner
  */
 export function logBanner(): void {
-  const version = process.env.HYTALE_VERSION || "unknown";
   const downloadMode = process.env.DOWNLOAD_MODE || "auto";
 
   logSeparator();
   logInfo("Hytale Dedicated Server - Docker Container");
-  logInfo(`Version: ${version}`);
   logInfo(`Mode: ${downloadMode}`);
   logSeparator();
 }

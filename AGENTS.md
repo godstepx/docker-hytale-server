@@ -20,20 +20,25 @@ the key project concepts and default guidelines. Update as needed.
   - `launcher`: copy from `LAUNCHER_PATH`.
   - `cli`: official Hytale Downloader CLI + OAuth device flow.
   - `auto`: try launcher, then CLI, else manual instructions.
+- Bundled CLI:
+  - Pre-downloaded at build time to `/opt/hytale/cli/` (read-only).
+  - Eliminates runtime CLI download - only server files require OAuth.
+  - Falls back to `/data/.hytale-cli/` if bundled CLI not found.
 - Version tracking: `/data/.version` JSON with source, patchline, timestamp.
 - Auth caches:
-  - Downloader CLI tokens in `/data/.auth`.
-  - CLI binaries in `/data/.hytale-cli`.
-- AOT cache support: `/data/server/HytaleServer.aot` used if present.
+  - Downloader CLI tokens in `/data/.auth` (persisted in volume).
+- AOT cache support: `/data/server/HytaleServer.aot` used if present (Java 25+).
 - Health checks:
   - `/opt/hytale/bin/healthcheck` binary checks Java process and UDP port 5520.
 - Logs: `/data/logs` (PID file: `/data/server.pid`).
 
 ## Repository Layout
-- `Dockerfile`: multi-stage build (Bun compilation + production), env defaults, healthcheck, non-root user.
+- `Dockerfile`: multi-stage build (Bun compilation + CLI download + production), env defaults, healthcheck, non-root user.
 - `Justfile`: development task runner (build, test, lint, format, etc.).
-- `src/entrypoint.ts`: main boot flow (download -> start server) - compiled to binary.
+- `src/setup.ts`: setup script (download -> validate -> write java command) - compiled to binary. Contains documented JVM flags.
+- `src/entrypoint.sh`: shell wrapper that runs setup, then execs Java (avoids Bun ARM64 crashes).
 - `src/download.ts`: download/copy server files + version tracking - imported by entrypoint.
+- `src/config.ts`: centralized configuration with BUNDLED_CLI_DIR and USER_CLI_DIR paths.
 - `src/healthcheck.ts`: health checks for Docker - compiled to binary.
 - `src/log-utils.ts`: logging module (imported by other TypeScript modules).
 - `package.json`: Bun project manifest with build scripts.
@@ -52,7 +57,7 @@ the key project concepts and default guidelines. Update as needed.
 - TypeScript compiled to standalone Bun binaries during Docker build.
 - Only 2 binaries: `entrypoint` (includes download module) and `healthcheck`.
 - Binaries are self-contained (no Node.js/Bun runtime needed in production image).
-- Uses Bun's built-in APIs: `fetch()` for HTTP, native JSON parsing, `fflate` for unzipping.
+- Uses Bun's built-in APIs: `fetch()` for HTTP, native JSON parsing, system `unzip` for extraction.
 - Process management via `Bun.spawn()` for external commands (Java, Hytale CLI, system utils).
 - Internal modules use standard TypeScript imports (bundled, no process spawning).
 
@@ -73,22 +78,40 @@ All flags documented via `java -jar HytaleServer.jar --help`:
 
 Reference: https://support.hytale.com/hc/en-us/articles/45326769420827
 
+## JVM Tuning
+
+The entrypoint uses optimized G1GC flags for game server workloads. Key settings:
+- G1GC with 200ms max pause target (low-latency focus)
+- 30-40% young generation sizing (reduces minor GC frequency)
+- 8MB heap regions (balanced for 4-16GB heaps)
+- AOT cache support (`-XX:AOTCache`) for faster startup on Java 25+
+- Full rationale documented in `src/setup.ts` comments
+
+Based on Aikar's flags (widely used for Minecraft servers), adapted for Hytale.
+
 ## Environment Variables (Key)
 - Download: `DOWNLOAD_MODE`, `HYTALE_CLI_URL`, `LAUNCHER_PATH`,
   `HYTALE_PATCHLINE`, `FORCE_DOWNLOAD`, `CHECK_UPDATES`.
+- Paths: `BUNDLED_CLI_DIR` (default: `/opt/hytale/cli`), `DATA_DIR` (default: `/data`).
 - Java: `JAVA_XMS`, `JAVA_XMX`, `JAVA_OPTS`.
 - Server: `SERVER_PORT`, `BIND_ADDRESS`, `AUTH_MODE`, `DISABLE_SENTRY`,
   `ENABLE_BACKUPS`, `BACKUP_FREQUENCY`, `BACKUP_DIR`, `ACCEPT_EARLY_PLUGINS`, `ALLOW_OP`.
-- Logging: `LOG_LEVEL`.
+- Logging: `CONTAINER_LOG_LEVEL`.
 - Misc: `DRY_RUN`, `TZ`.
 
-## Data Layout (Volume /data)
+## Data Layout
+
+### Image paths (read-only)
+- `/opt/hytale/bin/`: compiled entrypoint and healthcheck binaries.
+- `/opt/hytale/cli/`: **bundled Hytale Downloader CLI** (pre-downloaded at build time).
+
+### Volume /data (persistent, writable)
 - `/data/server/`: server binaries (`HytaleServer.jar`, AOT cache).
 - `/data/Assets.zip`: game assets.
 - `/data/universe/`: world saves.
 - `/data/config.json`: server config (managed by Hytale).
-- `/data/.hytale-cli/`: downloader binaries.
-- `/data/.auth/`: downloader auth cache.
+- `/data/.auth/`: downloader auth cache (OAuth tokens).
+- `/data/.hytale-cli/`: fallback CLI location (backward compatibility, rarely used).
 - `/data/.version`: installed version metadata.
 - `/data/logs/`: server logs.
 - `/data/backups/`: automatic backups (if enabled).
@@ -106,7 +129,7 @@ Reference: https://support.hytale.com/hc/en-us/articles/45326769420827
   
 ### Development Workflow
 - Source code is in `src/` directory (TypeScript).
-- Run locally with Bun: `bun run src/entrypoint.ts`
+- Run locally with Bun: `bun run src/setup.ts`
 - Build binaries locally: `bun run build` (creates `dist/` directory).
 - Docker build uses multi-stage process to compile binaries.
 

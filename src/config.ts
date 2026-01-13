@@ -33,7 +33,11 @@ function getEnvInt(key: string, defaultValue: number): number {
 
 export const DATA_DIR = getEnv("DATA_DIR", "/data");
 export const SERVER_DIR = resolve(DATA_DIR, "server");
-export const CLI_DIR = resolve(DATA_DIR, ".hytale-cli");
+
+// CLI directories: bundled (read-only, in image) and user (writable, in volume)
+export const BUNDLED_CLI_DIR = getEnv("BUNDLED_CLI_DIR", "/opt/hytale/cli");
+export const USER_CLI_DIR = resolve(DATA_DIR, ".hytale-cli");
+
 export const AUTH_CACHE = resolve(DATA_DIR, ".auth");
 export const LOG_DIR = resolve(DATA_DIR, "logs");
 
@@ -41,7 +45,6 @@ export const LOG_DIR = resolve(DATA_DIR, "logs");
 export const SERVER_JAR = resolve(SERVER_DIR, "HytaleServer.jar");
 export const ASSETS_FILE = resolve(DATA_DIR, "Assets.zip");
 export const VERSION_FILE = resolve(DATA_DIR, ".version");
-export const PID_FILE = resolve(DATA_DIR, "server.pid");
 export const AOT_CACHE = resolve(SERVER_DIR, "HytaleServer.aot");
 
 // =============================================================================
@@ -96,8 +99,7 @@ export const BACKUP_FREQUENCY = getEnv("BACKUP_FREQUENCY", "30");
 // Logging Configuration
 // =============================================================================
 
-export const LOG_LEVEL = getEnv("LOG_LEVEL", "INFO").toUpperCase();
-export const HYTALE_VERSION = getEnv("HYTALE_VERSION", "unknown");
+export const CONTAINER_LOG_LEVEL = getEnv("CONTAINER_LOG_LEVEL", "INFO").toUpperCase();
 
 // =============================================================================
 // Runtime Configuration

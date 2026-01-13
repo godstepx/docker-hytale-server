@@ -1,15 +1,19 @@
 #!/usr/bin/env bun
 /**
- * Hytale Server Entrypoint
- * Main entrypoint script that orchestrates:
- * 1. Server binary download via official Hytale CLI
- * 2. Server startup with proper signal handling
+ * Hytale Server Setup
+ * Setup script that:
+ * 1. Downloads server files via official Hytale CLI
+ * 2. Validates files exist
+ * 3. Writes Java command for shell wrapper to exec
+ *
+ * The shell wrapper (entrypoint-wrapper.sh) then execs Java directly.
+ * This avoids Bun managing long-running subprocesses (which can crash on ARM64).
  *
  * Note: Hytale manages its own config.json files.
  * See official docs: https://support.hytale.com/hc/en-us/articles/45326769420827
  */
 
-import { existsSync, mkdirSync, writeFileSync, unlinkSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { logInfo, logWarn, logBanner, die } from "./log-utils.ts";
 import { ensureServerFiles } from "./download.ts";
 import {
@@ -17,7 +21,6 @@ import {
   SERVER_DIR,
   SERVER_JAR,
   ASSETS_FILE,
-  PID_FILE,
   LOG_DIR,
   AOT_CACHE,
   JAVA_XMS,
@@ -34,77 +37,6 @@ import {
   BACKUP_FREQUENCY,
   DRY_RUN,
 } from "./config.ts";
-
-// Server process
-let serverProcess: ReturnType<typeof Bun.spawn> | null = null;
-let isShuttingDown = false;
-
-/**
- * Cleanup and graceful shutdown
- */
-async function cleanup(): Promise<void> {
-  if (isShuttingDown) {
-    return;
-  }
-  isShuttingDown = true;
-
-  logInfo("Received shutdown signal...");
-
-  if (serverProcess && !serverProcess.killed) {
-    logInfo(`Stopping server gracefully (PID: ${serverProcess.pid})...`);
-
-    try {
-      // Send SIGTERM to the process
-      serverProcess.kill("SIGTERM");
-
-      // Wait for graceful shutdown (max 30 seconds)
-      const timeout = 30;
-      let count = 0;
-
-      while (!serverProcess.killed && count < timeout) {
-        await Bun.sleep(1000);
-        count++;
-      }
-
-      // Force kill if still running
-      if (!serverProcess.killed) {
-        logWarn("Server did not stop gracefully, forcing...");
-        serverProcess.kill("SIGKILL");
-      }
-    } catch (error) {
-      logWarn(`Error during shutdown: ${error}`);
-    }
-  }
-
-  // Remove PID file
-  if (existsSync(PID_FILE)) {
-    try {
-      unlinkSync(PID_FILE);
-    } catch (error) {
-      // Ignore
-    }
-  }
-
-  logInfo("Shutdown complete");
-  process.exit(0);
-}
-
-/**
- * Setup signal handlers
- */
-function setupSignalHandlers(): void {
-  process.on("SIGTERM", () => {
-    void cleanup();
-  });
-
-  process.on("SIGINT", () => {
-    void cleanup();
-  });
-
-  process.on("SIGHUP", () => {
-    void cleanup();
-  });
-}
 
 /**
  * Download server files by calling the download module
@@ -126,31 +58,58 @@ function buildJavaArgs(): string[] {
   // Memory settings
   args.push(`-Xms${JAVA_XMS}`, `-Xmx${JAVA_XMX}`);
 
-  // Use AOT cache if available (faster startup)
+  // ==========================================================================
+  // AOT Cache Support (Java 25+)
+  // The Hytale server can generate an AOT cache file (HytaleServer.aot) which
+  // pre-compiles frequently used code paths for faster startup times.
+  // See: https://openjdk.org/jeps/483
+  // ==========================================================================
   if (existsSync(AOT_CACHE)) {
     logInfo("Using AOT cache for faster startup");
     args.push(`-XX:AOTCache=${AOT_CACHE}`);
   }
 
-  // Recommended JVM flags for game servers
+  // ==========================================================================
+  // G1GC Configuration for Game Servers
+  // Optimized for low-latency game server workloads with predictable pause times.
+  // Based on Aikar's flags (widely used for Minecraft servers) adapted for Hytale.
+  // Reference: https://docs.papermc.io/paper/aikars-flags
+  // ==========================================================================
   args.push(
+    // Use G1 Garbage Collector - best for large heaps with low pause time requirements
     "-XX:+UseG1GC",
+    // Process references in parallel during GC (reduces pause times)
     "-XX:+ParallelRefProcEnabled",
+    // Target max GC pause of 200ms - balances throughput vs latency
     "-XX:MaxGCPauseMillis=200",
+    // Required for some G1 tuning flags below
     "-XX:+UnlockExperimentalVMOptions",
+    // Ignore System.gc() calls - prevents plugins/mods from triggering full GC
     "-XX:+DisableExplicitGC",
+    // Pre-touch heap on startup - trades slower start for consistent runtime
     "-XX:+AlwaysPreTouch",
+    // 30-40% young gen sizing reduces minor GC frequency
     "-XX:G1NewSizePercent=30",
     "-XX:G1MaxNewSizePercent=40",
+    // 8MB heap regions - good balance for 4-16GB heaps
     "-XX:G1HeapRegionSize=8M",
+    // Reserve 20% for emergency evacuation - prevents full GC under load
     "-XX:G1ReservePercent=20",
+    // Allow 5% wasted space to reduce GC frequency
     "-XX:G1HeapWastePercent=5",
+    // Process old gen in 4 cycles (smoother performance)
     "-XX:G1MixedGCCountTarget=4",
+    // Start concurrent marking at 15% heap (aggressive but reduces pauses)
     "-XX:InitiatingHeapOccupancyPercent=15",
+    // Only collect regions with <90% live data
     "-XX:G1MixedGCLiveThresholdPercent=90",
+    // Limit remembered set update to 5% of pause time
     "-XX:G1RSetUpdatingPauseTimePercent=5",
+    // Promote objects to old gen faster (game server allocation pattern)
     "-XX:SurvivorRatio=32",
+    // Disable perf shared memory file - reduces I/O overhead
     "-XX:+PerfDisableSharedMem",
+    // Promote after 1 GC cycle (reduces young gen churn)
     "-XX:MaxTenuringThreshold=1"
   );
 
@@ -200,10 +159,19 @@ function buildJavaArgs(): string[] {
 }
 
 /**
- * Start the Hytale server
+ * Prepare server startup
+ * Writes Java command to file for shell wrapper to exec
  */
-async function startServer(): Promise<void> {
-  logInfo("Starting Hytale server...");
+async function prepareServer(): Promise<void> {
+  logInfo("Preparing Hytale server...");
+
+  const javaArgs = buildJavaArgs();
+
+  if (DRY_RUN) {
+    logInfo(`[DRY_RUN] Java command: java ${javaArgs.join(" ")}`);
+    logInfo("[DRY_RUN] Setup complete, exiting.");
+    process.exit(0);
+  }
 
   if (!existsSync(SERVER_JAR)) {
     die(`Server JAR not found: ${SERVER_JAR}`);
@@ -215,44 +183,15 @@ async function startServer(): Promise<void> {
 
   mkdirSync(LOG_DIR, { recursive: true });
 
-  const javaArgs = buildJavaArgs();
+  // Write Java command to file for shell wrapper to exec
+  // This avoids Bun managing a long-running subprocess (which can crash on ARM64)
+  const javaCommand = ["exec", "java", ...javaArgs];
+  const escapedArgs = javaCommand.map((arg) => `"${arg.replace(/"/g, '\\"')}"`).join(" ");
+  const javaCmdFile = "/tmp/java-cmd.sh";
 
+  writeFileSync(javaCmdFile, escapedArgs + "\n", { mode: 0o755 });
   logInfo(`Java command: java ${javaArgs.join(" ")}`);
-
-  if (DRY_RUN) {
-    logInfo(`[DRY_RUN] Would start server with: java ${javaArgs.join(" ")}`);
-    logInfo("[DRY_RUN] Entrypoint complete, exiting.");
-    process.exit(0);
-  }
-
-  // Change to data directory
-  process.chdir(DATA_DIR);
-
-  // Start server - pass through current environment
-  serverProcess = Bun.spawn(["java", ...javaArgs], {
-    stdout: "inherit",
-    stderr: "inherit",
-    stdin: "inherit",
-  });
-
-  // Save PID
-  writeFileSync(PID_FILE, serverProcess.pid.toString(), "utf-8");
-  logInfo(`Server started with PID: ${serverProcess.pid}`);
-
-  // Wait for server process
-  const exitCode = await serverProcess.exited;
-
-  // Remove PID file
-  if (existsSync(PID_FILE)) {
-    try {
-      unlinkSync(PID_FILE);
-    } catch (error) {
-      // Ignore
-    }
-  }
-
-  logInfo(`Server exited with code: ${exitCode}`);
-  process.exit(exitCode);
+  logInfo("Setup complete, handing off to Java...");
 }
 
 /**
@@ -260,9 +199,6 @@ async function startServer(): Promise<void> {
  */
 async function main(): Promise<void> {
   logBanner();
-
-  // Setup signal handlers
-  setupSignalHandlers();
 
   // Setup directories
   mkdirSync(DATA_DIR, { recursive: true });
@@ -272,13 +208,13 @@ async function main(): Promise<void> {
   // Phase 1: Download server files (via Hytale CLI)
   await downloadServer();
 
-  // Phase 2: Start server
-  await startServer();
+  // Phase 2: Prepare server (write java command)
+  await prepareServer();
 }
 
 // Run main if executed directly
 if (import.meta.main) {
   main().catch((error) => {
-    die(`Entrypoint failed: ${error}`);
+    die(`Setup failed: ${error}`);
   });
 }

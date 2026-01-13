@@ -7,21 +7,23 @@
  *   3. LAUNCHER_PATH: Copy from local Hytale launcher installation
  */
 
-import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, rmSync } from "fs";
+import {
+  existsSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  copyFileSync,
+  rmSync,
+  renameSync,
+  readdirSync,
+} from "fs";
 import { resolve as resolvePath, basename } from "path";
 import { cp } from "fs/promises";
-import { unzip } from "fflate";
-import {
-  logInfo,
-  logWarn,
-  logError,
-  logDebug,
-  logSeparator,
-  die,
-} from "./log-utils.ts";
+import { logInfo, logWarn, logError, logDebug, logSeparator, die } from "./log-utils.ts";
 import {
   DATA_DIR,
-  CLI_DIR,
+  BUNDLED_CLI_DIR,
+  USER_CLI_DIR,
   AUTH_CACHE,
   SERVER_DIR,
   ASSETS_FILE,
@@ -34,6 +36,7 @@ import {
   HYTALE_PATCHLINE,
   FORCE_DOWNLOAD,
   CHECK_UPDATES,
+  SKIP_CLI_UPDATE_CHECK,
   DRY_RUN,
 } from "./config.ts";
 
@@ -46,17 +49,85 @@ function calculateBackoff(attempt: number): number {
   return baseBackoff + jitter;
 }
 
+// Cached CLI binary path (resolved once, reused)
+let cachedCliBinary: string | null = null;
+
 /**
- * Detect CLI binary in the CLI directory
+ * Get or resolve CLI binary path (cached after first call)
  */
-function detectCliBinary(): string | null {
-  const candidates = [
-    resolvePath(CLI_DIR, "hytale-downloader-linux-amd64"),
-    resolvePath(CLI_DIR, "hytale-downloader-linux-arm64"),
-    resolvePath(CLI_DIR, "hytale-downloader"),
+function getOrResolveCli(): string {
+  if (cachedCliBinary) return cachedCliBinary;
+  cachedCliBinary = getCliBinaryPath();
+  if (!cachedCliBinary) {
+    die("CLI binary not found. Bundled CLI should always be present.");
+  }
+  return cachedCliBinary;
+}
+
+/**
+ * Clear CLI cache (call after downloading new CLI)
+ */
+function clearCliCache(): void {
+  cachedCliBinary = null;
+}
+
+/**
+ * Build CLI args with common flags
+ */
+function buildCliArgs(args: string[]): string[] {
+  // Always specify credentials path to persist auth in the volume
+  const credentialsPath = resolvePath(AUTH_CACHE, "credentials.json");
+  const fullArgs = ["-credentials-path", credentialsPath, ...args];
+
+  if (SKIP_CLI_UPDATE_CHECK) {
+    fullArgs.push("-skip-update-check");
+  }
+  return fullArgs;
+}
+
+/**
+ * Run CLI command synchronously (for quick commands like -print-version)
+ */
+function runCliSync(args: string[]): { exitCode: number; stdout: string } {
+  // Ensure auth cache directory exists before CLI runs
+  mkdirSync(AUTH_CACHE, { recursive: true });
+
+  const cliBin = getOrResolveCli();
+  const proc = Bun.spawnSync([cliBin, ...buildCliArgs(args)]);
+  return {
+    exitCode: proc.exitCode ?? 1,
+    stdout: new TextDecoder().decode(proc.stdout).trim(),
+  };
+}
+
+/**
+ * Run CLI command asynchronously with interactive I/O (for downloads with OAuth)
+ */
+async function runCliAsync(args: string[]): Promise<number> {
+  // Ensure auth cache directory exists before CLI runs
+  mkdirSync(AUTH_CACHE, { recursive: true });
+
+  const cliBin = getOrResolveCli();
+  const proc = Bun.spawn([cliBin, ...buildCliArgs(args)], {
+    stdout: "inherit",
+    stderr: "inherit",
+    stdin: "inherit",
+  });
+  return await proc.exited;
+}
+
+/**
+ * Detect CLI binary in a specific directory
+ */
+function detectCliBinaryIn(dir: string): string | null {
+  const binaryNames = [
+    "hytale-downloader-linux-amd64",
+    "hytale-downloader-linux-arm64",
+    "hytale-downloader",
   ];
 
-  for (const candidate of candidates) {
+  for (const name of binaryNames) {
+    const candidate = resolvePath(dir, name);
     if (existsSync(candidate)) {
       return candidate;
     }
@@ -66,61 +137,44 @@ function detectCliBinary(): string | null {
 }
 
 /**
- * Unzip a buffer to a directory using fflate
+ * Get CLI binary path
+ * Priority: 1) User CLI (if exists), 2) Bundled CLI (fallback)
  */
-async function unzipBuffer(buffer: Uint8Array, targetDir: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    unzip(buffer, (err, unzipped) => {
-      if (err) {
-        reject(err);
-        return;
-      }
+function getCliBinaryPath(): string | null {
+  // Check user CLI first (may have been downloaded previously or via FORCE_DOWNLOAD)
+  const userCli = detectCliBinaryIn(USER_CLI_DIR);
+  if (userCli) return userCli;
 
-      try {
-        mkdirSync(targetDir, { recursive: true });
-
-        for (const [filename, data] of Object.entries(unzipped)) {
-          const filePath = resolvePath(targetDir, filename);
-          const fileDir = resolvePath(filePath, "..");
-
-          // Create directory if needed
-          mkdirSync(fileDir, { recursive: true });
-
-          // Write file
-          writeFileSync(filePath, data);
-
-          // Make executable if it looks like a binary
-          if (
-            filename.includes("hytale-downloader") ||
-            filename.endsWith(".sh") ||
-            filename.endsWith(".bin")
-          ) {
-            try {
-              const proc = Bun.spawnSync(["chmod", "+x", filePath]);
-              if (proc.exitCode !== 0) {
-                logWarn(`Failed to make ${filename} executable`);
-              }
-            } catch (error) {
-              logWarn(`Failed to make ${filename} executable: ${error}`);
-            }
-          }
-        }
-
-        resolve();
-      } catch (error) {
-        reject(error);
-      }
-    });
-  });
+  // Fall back to bundled CLI (always present in image)
+  return detectCliBinaryIn(BUNDLED_CLI_DIR);
 }
 
 /**
- * Download Hytale CLI
+ * Unzip a file to a directory using system unzip command
+ */
+async function unzipFile(zipPath: string, targetDir: string): Promise<void> {
+  mkdirSync(targetDir, { recursive: true });
+
+  const proc = Bun.spawn(["unzip", "-q", "-o", zipPath, "-d", targetDir], {
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) {
+    throw new Error(`unzip failed with exit code ${exitCode}`);
+  }
+}
+
+/**
+ * Download Hytale CLI to user directory (fallback if bundled CLI not present)
  */
 async function downloadCli(): Promise<void> {
   logInfo("Downloading Hytale Downloader CLI...");
 
-  mkdirSync(CLI_DIR, { recursive: true });
+  mkdirSync(USER_CLI_DIR, { recursive: true });
+
+  const tempZipPath = resolvePath(USER_CLI_DIR, "cli-download.zip");
 
   let attempt = 1;
   while (attempt <= DOWNLOAD_MAX_RETRIES) {
@@ -133,20 +187,26 @@ async function downloadCli(): Promise<void> {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
+      // Save to temp file
       const buffer = new Uint8Array(await response.arrayBuffer());
-      logInfo("Extracting CLI...");
+      writeFileSync(tempZipPath, buffer);
 
-      await unzipBuffer(buffer, CLI_DIR);
+      logInfo("Extracting CLI...");
+      await unzipFile(tempZipPath, USER_CLI_DIR);
+
+      // Cleanup temp file
+      rmSync(tempZipPath, { force: true });
 
       // Verify we can find the binary
-      const binary = detectCliBinary();
+      const binary = detectCliBinaryIn(USER_CLI_DIR);
       if (binary) {
         logInfo(`CLI downloaded successfully: ${basename(binary)}`);
         return;
       } else {
-        die(`CLI extracted but no executable found in ${CLI_DIR}`);
+        die(`CLI extracted but no executable found in ${USER_CLI_DIR}`);
       }
     } catch (error) {
+      rmSync(tempZipPath, { force: true }); // Cleanup on error
       const backoff = calculateBackoff(attempt);
       logWarn(`Download failed (${error}), retrying in ${backoff}s...`);
       await Bun.sleep(backoff * 1000);
@@ -158,27 +218,21 @@ async function downloadCli(): Promise<void> {
 }
 
 /**
- * Get CLI binary path
- */
-function getCliBinary(): string {
-  const binary = detectCliBinary();
-  if (!binary) {
-    die("CLI binary not found. Run download first.");
-  }
-  return binary;
-}
-
-/**
- * Ensure CLI is present
+ * Ensure CLI is ready - downloads fresh CLI to user dir if FORCE_DOWNLOAD
  */
 async function ensureCli(): Promise<void> {
-  const binary = detectCliBinary();
-
-  if (!binary) {
+  if (FORCE_DOWNLOAD) {
+    // Download fresh CLI to user directory
+    logInfo("FORCE_DOWNLOAD: Downloading fresh CLI...");
     await downloadCli();
-  } else {
-    logDebug(`CLI already present at ${binary}`);
+    // Clear cache so we pick up the newly downloaded CLI
+    clearCliCache();
   }
+
+  // Log which CLI we're using
+  const binary = getOrResolveCli();
+  const isUserCli = binary.startsWith(USER_CLI_DIR);
+  logInfo(`Using ${isUserCli ? "user" : "bundled"} CLI: ${basename(binary)}`);
 }
 
 /**
@@ -196,19 +250,24 @@ function checkExistingFiles(): boolean {
     }
 
     if (CHECK_UPDATES) {
-      const cliBin = detectCliBinary();
-      if (cliBin) {
-        logInfo("Checking for updates...");
-        try {
-          const proc = Bun.spawnSync([cliBin, "-print-version"]);
-          if (proc.exitCode === 0) {
-            const currentVersion = new TextDecoder().decode(proc.stdout).trim();
-            logInfo(`Latest version available: ${currentVersion}`);
-            // TODO: Compare with installed version
+      logInfo("Checking for updates...");
+      try {
+        const result = runCliSync(["-print-version"]);
+        if (result.exitCode === 0) {
+          const latestVersion = result.stdout;
+          const installedVersion = getInstalledVersion();
+
+          if (installedVersion === "unknown") {
+            logInfo(`Latest version: ${latestVersion} (installed version unknown)`);
+          } else if (latestVersion === installedVersion) {
+            logInfo(`Server is up to date (${installedVersion})`);
+          } else {
+            logWarn(`Update available: ${installedVersion} -> ${latestVersion}`);
+            logInfo("Set FORCE_DOWNLOAD=true to update");
           }
-        } catch (error) {
-          logDebug(`Failed to check version: ${error}`);
         }
+      } catch (error) {
+        logDebug(`Failed to check version: ${error}`);
       }
     }
 
@@ -224,14 +283,15 @@ function checkExistingFiles(): boolean {
 async function downloadServerFiles(): Promise<void> {
   logInfo("Starting server file download...");
 
-  // Ensure auth cache directory exists
-  mkdirSync(AUTH_CACHE, { recursive: true });
-
-  // Set HOME to auth cache so CLI stores tokens there
-  process.env.HOME = AUTH_CACHE;
-  process.env.XDG_CONFIG_HOME = AUTH_CACHE;
-
   const downloadPath = resolvePath(DATA_DIR, "game.zip");
+
+  // Clean up any leftover game.zip from previous failed runs
+  try {
+    rmSync(downloadPath, { force: true });
+  } catch (error) {
+    logWarn(`Could not clean up old game.zip: ${error}`);
+  }
+
   const downloadArgs = ["-download-path", downloadPath];
 
   // Add patchline if not release
@@ -243,18 +303,12 @@ async function downloadServerFiles(): Promise<void> {
   logInfo("Running Hytale Downloader...");
   logInfo("If this is your first time, you will need to authorize:");
   logSeparator();
+  console.log(""); // Blank line before CLI output
 
-  // Get CLI binary path
-  const cliBin = getCliBinary();
+  const exitCode = await runCliAsync(downloadArgs);
 
-  // Run the CLI - it will handle auth interactively
-  const proc = Bun.spawn([cliBin, ...downloadArgs], {
-    stdout: "inherit",
-    stderr: "inherit",
-    stdin: "inherit",
-  });
-
-  const exitCode = await proc.exited;
+  console.log(""); // Blank line after CLI output
+  logSeparator();
 
   if (exitCode !== 0) {
     die("Hytale Downloader failed. Please check the output above.");
@@ -264,30 +318,41 @@ async function downloadServerFiles(): Promise<void> {
 
   // Extract the downloaded archive
   if (existsSync(downloadPath)) {
-    const buffer = new Uint8Array(await Bun.file(downloadPath).arrayBuffer());
+    // Extract directly to DATA_DIR (creates Server/ and Assets.zip there)
+    await unzipFile(downloadPath, DATA_DIR);
 
-    // Extract to temp directory first
-    const tempDir = resolvePath(DATA_DIR, "temp-extract");
-    await unzipBuffer(buffer, tempDir);
+    // Debug: List what was extracted
+    try {
+      const items = readdirSync(DATA_DIR);
+      logDebug(`Extracted items in ${DATA_DIR}: ${items.join(", ")}`);
+    } catch (e) {
+      logDebug(`Could not list ${DATA_DIR}: ${e}`);
+    }
 
-    // Move files to expected locations
-    const serverSrcDir = resolvePath(tempDir, "Server");
-    if (existsSync(serverSrcDir)) {
+    // Rename Server/ to server/ (our expected location)
+    // Note: On case-insensitive filesystems, Server/ and server/ are the same
+    const extractedServerDir = resolvePath(DATA_DIR, "Server");
+    const serverJar = resolvePath(SERVER_DIR, "HytaleServer.jar");
+
+    if (existsSync(extractedServerDir) && extractedServerDir !== SERVER_DIR) {
+      logDebug(`Renaming ${extractedServerDir} to ${SERVER_DIR}`);
       // Remove old server dir if it exists
       if (existsSync(SERVER_DIR)) {
         rmSync(SERVER_DIR, { recursive: true, force: true });
       }
-      await cp(serverSrcDir, SERVER_DIR, { recursive: true });
+      // Rename Server -> server
+      renameSync(extractedServerDir, SERVER_DIR);
+    } else if (existsSync(serverJar)) {
+      // Files extracted directly to server/ (case-insensitive filesystem)
+      logDebug("Server files already in correct location");
+    } else {
+      die("Extraction failed: Server directory not found after unzip");
     }
 
-    const assetsSrc = resolvePath(tempDir, "Assets.zip");
-    if (existsSync(assetsSrc)) {
-      copyFileSync(assetsSrc, ASSETS_FILE);
-    }
+    // Assets.zip is already in the right place (DATA_DIR/Assets.zip)
 
-    // Cleanup
+    // Cleanup downloaded archive
     rmSync(downloadPath, { force: true });
-    rmSync(tempDir, { recursive: true, force: true });
 
     saveVersionInfo("cli");
     logInfo("Server files ready!");
@@ -302,16 +367,13 @@ async function downloadServerFiles(): Promise<void> {
 function saveVersionInfo(source: string): void {
   let version = "unknown";
 
-  const cliBin = detectCliBinary();
-  if (cliBin) {
-    try {
-      const proc = Bun.spawnSync([cliBin, "-print-version"]);
-      if (proc.exitCode === 0) {
-        version = new TextDecoder().decode(proc.stdout).trim();
-      }
-    } catch (error) {
-      // Ignore
+  try {
+    const result = runCliSync(["-print-version"]);
+    if (result.exitCode === 0) {
+      version = result.stdout;
     }
+  } catch (error) {
+    // Ignore
   }
 
   const versionInfo = {
@@ -368,9 +430,7 @@ function showManualInstructions(): void {
   );
   logInfo("");
   logInfo("Option 3: Mount launcher directory directly");
-  logInfo(
-    "  docker run -v /path/to/Hytale/install/release/package/game/latest:/launcher:ro \\"
-  );
+  logInfo("  docker run -v /path/to/Hytale/install/release/package/game/latest:/launcher:ro \\");
   logInfo("             -e LAUNCHER_PATH=/launcher \\");
   logInfo("             -v hytale-data:/data ...");
   logInfo("");

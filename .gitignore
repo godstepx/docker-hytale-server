@@ -23,3 +23,5 @@ dist/
 *.tsbuildinfo
 bun.lock
 
+# Direnv
+.direnv/

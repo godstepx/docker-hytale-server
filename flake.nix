@@ -33,6 +33,7 @@
               [
                 bun
                 python3
+                hadolint
               ];
 
             packages = with pkgs; [
