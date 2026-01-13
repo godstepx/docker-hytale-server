@@ -50,9 +50,7 @@ docker run -d -v hytale-data:/data -p 5520:5520/udp ghcr.io/godstepx/hytale-serv
 
 Use the official Hytale CLI for automated downloads. Requires OAuth2 authentication on first run.
 
-1. Get the CLI download URL from the [Hytale Server Manual](https://support.hytale.com/hc/en-us/articles/Hytale-Server-Manual)
-
-2. Start the container (interactive for first download):
+1. Start the container (interactive for first download):
 ```bash
 docker run -it \
   -v hytale-data:/data \
@@ -117,7 +115,7 @@ volumes:
 |----------|---------|-------------|
 | **Download Options** |||
 | `DOWNLOAD_MODE` | `auto` | `auto`, `cli`, `launcher`, or `manual` |
-| `HYTALE_CLI_URL` | `https://downloader.hytale.com/...` | URL to Hytale Downloader CLI (auto-detected) |
+| `HYTALE_CLI_URL` | `https://downloader.hytale.com/hytale-downloader.zip` | URL to Hytale Downloader CLI |
 | `LAUNCHER_PATH` | - | Path to mounted launcher directory (skips download) |
 | `HYTALE_PATCHLINE` | `release` | `release` or `pre-release` |
 | `FORCE_DOWNLOAD` | `false` | Force re-download even if files exist |
