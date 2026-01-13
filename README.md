@@ -131,10 +131,28 @@ The image handles `SIGTERM` to save world data before exiting.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `JAVA_XMX` | `4G` | Maximum heap size |
+| `JAVA_XMS` | `1G` | Initial heap size |
 | `DOWNLOAD_MODE` | `auto` | `auto`, `cli`, `launcher`, or `manual` |
 | `SERVER_PORT` | `5520` | UDP port (QUIC) |
 | `AUTH_MODE` | `authenticated` | `authenticated` or `offline` |
 | `ENABLE_AOT` | `true` | Enable/Disable AOT cache |
+
+### Token Passthrough (GSP/Advanced)
+
+Skip the interactive auth flow by passing tokens directly:
+
+| Variable | Description |
+|----------|-------------|
+| `HYTALE_SERVER_SESSION_TOKEN` | Session token (JWT) |
+| `HYTALE_SERVER_IDENTITY_TOKEN` | Identity token (JWT) |
+
+```yaml
+environment:
+  HYTALE_SERVER_SESSION_TOKEN: "eyJhbGciOiJFZERTQSIs..."
+  HYTALE_SERVER_IDENTITY_TOKEN: "eyJhbGciOiJFZERTQSIs..."
+```
+
+For token acquisition, see the [Server Provider Authentication Guide](https://support.hytale.com/hc/en-us/articles/45326769436187).
 
 ## Volumes
 
