@@ -20,6 +20,7 @@ ARG ALPINE_VERSION=3.20
 FROM eclipse-temurin:${JAVA_VERSION}-jre-alpine AS base
 
 # Install runtime dependencies
+# hadolint ignore=DL3018
 RUN apk add --no-cache \
     bash \
     curl \
