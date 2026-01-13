@@ -149,11 +149,23 @@ build_java_args() {
         args+=("--disable-sentry")
     fi
     
+    # Accept early plugins (unsupported)
+    if [[ "${ACCEPT_EARLY_PLUGINS:-false}" == "true" ]]; then
+        log_warn "Early plugins enabled - this is unsupported and may cause stability issues"
+        args+=("--accept-early-plugins")
+    fi
+    
+    # Allow operator commands
+    if [[ "${ALLOW_OP:-false}" == "true" ]]; then
+        args+=("--allow-op")
+    fi
+    
     # Backups
     if [[ "${ENABLE_BACKUPS:-false}" == "true" ]]; then
         args+=("--backup")
         args+=("--backup-dir" "${BACKUP_DIR:-/data/backups}")
         args+=("--backup-frequency" "${BACKUP_FREQUENCY:-30}")
+        log_info "Backups enabled: every ${BACKUP_FREQUENCY:-30} minutes to ${BACKUP_DIR:-/data/backups}"
     fi
     
     echo "${args[@]}"
