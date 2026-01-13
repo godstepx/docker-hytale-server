@@ -58,13 +58,20 @@ RUN mkdir -p /data /data/logs /data/backups \
 
 # Environment defaults
 ENV DATA_DIR=/data \
+    # Download options
+    DOWNLOAD_MODE=auto \
+    HYTALE_CLI_URL="" \
+    LAUNCHER_PATH="" \
+    HYTALE_PATCHLINE=release \
+    FORCE_DOWNLOAD=false \
+    CHECK_UPDATES=true \
+    # Java options
     JAVA_XMS=1G \
     JAVA_XMX=4G \
+    # Server options
     SERVER_PORT=5520 \
     BIND_ADDRESS=0.0.0.0 \
     AUTH_MODE=authenticated \
-    HYTALE_PATCHLINE=release \
-    CHECK_UPDATES=true \
     ENABLE_BACKUPS=false \
     BACKUP_FREQUENCY=30 \
     DISABLE_SENTRY=false \

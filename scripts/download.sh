@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Download Adapter - Hytale Downloader CLI Integration
+# Download Adapter - Hytale Server Files Management
 # =============================================================================
-# Handles downloading server files using the official Hytale Downloader CLI
-# with OAuth2 Device Authorization flow.
+# Handles obtaining server files via multiple methods:
+#   1. MANUAL: User provides files via volume mount (no auth needed)
+#   2. CLI: Official Hytale Downloader CLI with OAuth2 (recommended)
+#   3. LAUNCHER_PATH: Copy from local Hytale launcher installation
+#
+# Environment Variables:
+#   DOWNLOAD_MODE: manual|cli|auto (default: auto)
+#   HYTALE_CLI_URL: Override CLI download URL
+#   LAUNCHER_PATH: Path to local Hytale launcher installation
 #
 # Usage: download.sh
 # =============================================================================
@@ -17,13 +24,19 @@ source "${SCRIPT_DIR}/log-utils.sh"
 # Configuration
 readonly DATA_DIR="${DATA_DIR:-/data}"
 readonly CLI_DIR="${DATA_DIR}/.hytale-cli"
-readonly CLI_BINARY="${CLI_DIR}/hytale-downloader"
 readonly AUTH_CACHE="${DATA_DIR}/.auth"
 readonly SERVER_DIR="${DATA_DIR}/server"
 readonly ASSETS_FILE="${DATA_DIR}/Assets.zip"
+readonly VERSION_FILE="${DATA_DIR}/.version"
 
-# Hytale CLI download URL (Linux)
-readonly CLI_DOWNLOAD_URL="${HYTALE_CLI_URL:-https://support.hytale.com/hc/en-us/article_attachments/hytale-downloader.zip}"
+# Download mode: manual, cli, auto
+readonly DOWNLOAD_MODE="${DOWNLOAD_MODE:-auto}"
+
+# Hytale CLI download URL (Linux & Windows)
+readonly CLI_DOWNLOAD_URL="${HYTALE_CLI_URL:-https://downloader.hytale.com/hytale-downloader.zip}"
+
+# Launcher installation paths (for copying files)
+readonly LAUNCHER_PATH="${LAUNCHER_PATH:-}"
 
 # Download settings
 readonly MAX_RETRIES="${DOWNLOAD_MAX_RETRIES:-5}"
@@ -45,6 +58,26 @@ calculate_backoff() {
 # CLI Management
 # =============================================================================
 
+detect_cli_binary() {
+    # Try platform-specific binary names
+    local candidates=(
+        "${CLI_DIR}/hytale-downloader-linux-amd64"
+        "${CLI_DIR}/hytale-downloader-linux-arm64"
+        "${CLI_DIR}/hytale-downloader"
+    )
+    
+    for candidate in "${candidates[@]}"; do
+        if [[ -f "$candidate" ]]; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+    
+    # Return empty string but success (caller checks output)
+    echo ""
+    return 0
+}
+
 download_cli() {
     log_info "Downloading Hytale Downloader CLI..."
     
@@ -59,10 +92,21 @@ download_cli() {
         if curl -fsSL -o "$temp_zip" "$CLI_DOWNLOAD_URL"; then
             log_info "Extracting CLI..."
             unzip -o -q "$temp_zip" -d "$CLI_DIR"
-            chmod +x "${CLI_DIR}/hytale-downloader" 2>/dev/null || true
+            
+            # Make all potential binaries executable
+            chmod +x "${CLI_DIR}"/hytale-downloader* 2>/dev/null || true
+            
             rm -f "$temp_zip"
-            log_info "CLI downloaded successfully"
-            return 0
+            
+            # Verify we can find the binary
+            local binary
+            binary=$(detect_cli_binary)
+            if [[ -n "$binary" ]]; then
+                log_info "CLI downloaded successfully: $(basename "$binary")"
+                return 0
+            else
+                die "CLI extracted but no executable found in $CLI_DIR"
+            fi
         fi
         
         local backoff
@@ -76,16 +120,28 @@ download_cli() {
     die "Failed to download Hytale CLI after $MAX_RETRIES attempts"
 }
 
+get_cli_binary() {
+    local binary
+    binary=$(detect_cli_binary)
+    if [[ -z "$binary" ]]; then
+        die "CLI binary not found. Run download first."
+    fi
+    echo "$binary"
+}
+
 ensure_cli() {
-    if [[ ! -x "$CLI_BINARY" ]]; then
+    local binary
+    binary=$(detect_cli_binary)
+    
+    if [[ -z "$binary" ]]; then
         download_cli
     else
-        log_debug "CLI already present at $CLI_BINARY"
+        log_debug "CLI already present at $binary"
         
         # Optional: Check for CLI updates
         if [[ "${SKIP_CLI_UPDATE_CHECK:-false}" != "true" ]]; then
             log_debug "Checking for CLI updates..."
-            "$CLI_BINARY" -check-update 2>/dev/null || true
+            "$binary" -check-update 2>/dev/null || true
         fi
     fi
 }
@@ -106,11 +162,15 @@ check_existing_files() {
         fi
         
         if [[ "${CHECK_UPDATES:-true}" == "true" ]]; then
-            log_info "Checking for updates..."
-            local current_version
-            current_version=$("$CLI_BINARY" -print-version 2>/dev/null || echo "unknown")
-            log_info "Latest version available: $current_version"
-            # TODO: Compare with installed version
+            local cli_bin
+            cli_bin=$(detect_cli_binary)
+            if [[ -n "$cli_bin" ]]; then
+                log_info "Checking for updates..."
+                local current_version
+                current_version=$("$cli_bin" -print-version 2>/dev/null || echo "unknown")
+                log_info "Latest version available: $current_version"
+                # TODO: Compare with installed version
+            fi
         fi
         
         return 0
@@ -147,8 +207,12 @@ download_server_files() {
     log_info "If this is your first time, you will need to authorize:"
     log_separator
     
+    # Get CLI binary path
+    local cli_bin
+    cli_bin=$(get_cli_binary)
+    
     # Run the CLI - it will handle auth interactively
-    if ! "$CLI_BINARY" "${download_args[@]}"; then
+    if ! "$cli_bin" "${download_args[@]}"; then
         die "Hytale Downloader failed. Please check the output above."
     fi
     
@@ -169,10 +233,116 @@ download_server_files() {
             true
         fi
         
+        save_version_info "cli"
         log_info "Server files ready!"
     else
         die "Expected game.zip not found after download"
     fi
+}
+
+# =============================================================================
+# Version Tracking
+# =============================================================================
+
+save_version_info() {
+    local source="$1"
+    local version="unknown"
+    
+    local cli_bin
+    cli_bin=$(detect_cli_binary)
+    if [[ -n "$cli_bin" ]]; then
+        version=$("$cli_bin" -print-version 2>/dev/null || echo "unknown")
+    fi
+    
+    cat > "$VERSION_FILE" <<EOF
+{
+  "version": "$version",
+  "source": "$source",
+  "patchline": "$PATCHLINE",
+  "downloaded_at": "$(date -Iseconds)"
+}
+EOF
+    log_info "Version info saved: $version ($source)"
+}
+
+get_installed_version() {
+    if [[ -f "$VERSION_FILE" ]]; then
+        jq -r '.version // "unknown"' "$VERSION_FILE" 2>/dev/null || echo "unknown"
+    else
+        echo "unknown"
+    fi
+}
+
+# =============================================================================
+# Manual Mode - User Provides Files
+# =============================================================================
+
+show_manual_instructions() {
+    log_separator
+    log_error "Server files not found!"
+    log_separator
+    log_info ""
+    log_info "Please provide server files using one of these methods:"
+    log_info ""
+    log_info "Option 1: Copy from your Hytale Launcher installation"
+    log_info "  Source locations:"
+    log_info "    Windows: %appdata%\\Hytale\\install\\release\\package\\game\\latest"
+    log_info "    Linux:   \$XDG_DATA_HOME/Hytale/install/release/package/game/latest"
+    log_info "    MacOS:   ~/Application Support/Hytale/install/release/package/game/latest"
+    log_info ""
+    log_info "  Copy 'Server/' folder and 'Assets.zip' to your data volume:"
+    log_info "    docker cp ./Server hytale-server:/data/server"
+    log_info "    docker cp ./Assets.zip hytale-server:/data/Assets.zip"
+    log_info ""
+    log_info "Option 2: Use Hytale Downloader CLI"
+    log_info "  Set HYTALE_CLI_URL environment variable to the CLI download URL"
+    log_info "  (Get URL from: https://support.hytale.com/hc/en-us/articles/Hytale-Server-Manual)"
+    log_info ""
+    log_info "Option 3: Mount launcher directory directly"
+    log_info "  docker run -v /path/to/Hytale/install/release/package/game/latest:/launcher:ro \\"
+    log_info "             -e LAUNCHER_PATH=/launcher \\"
+    log_info "             -v hytale-data:/data ..."
+    log_info ""
+    log_separator
+}
+
+# =============================================================================
+# Launcher Copy Mode
+# =============================================================================
+
+copy_from_launcher() {
+    if [[ -z "$LAUNCHER_PATH" ]]; then
+        return 1
+    fi
+    
+    log_info "Copying server files from launcher: $LAUNCHER_PATH"
+    
+    local launcher_server="${LAUNCHER_PATH}/Server"
+    local launcher_assets="${LAUNCHER_PATH}/Assets.zip"
+    
+    if [[ ! -d "$launcher_server" ]]; then
+        log_error "Server directory not found at: $launcher_server"
+        return 1
+    fi
+    
+    if [[ ! -f "$launcher_assets" ]]; then
+        log_error "Assets.zip not found at: $launcher_assets"
+        return 1
+    fi
+    
+    # Ensure server dir exists and is empty
+    rm -rf "$SERVER_DIR"
+    mkdir -p "$SERVER_DIR"
+    
+    log_info "Copying Server files..."
+    cp -r "$launcher_server"/. "$SERVER_DIR"/
+    
+    log_info "Copying Assets.zip..."
+    cp "$launcher_assets" "$ASSETS_FILE"
+    
+    save_version_info "launcher"
+    log_info "Server files copied successfully!"
+    return 0
 }
 
 # =============================================================================
@@ -182,11 +352,14 @@ download_server_files() {
 main() {
     log_info "Hytale Server File Manager"
     log_info "=========================="
+    log_info "Mode: $DOWNLOAD_MODE"
     
     # DRY_RUN mode
     if [[ "${DRY_RUN:-false}" == "true" ]]; then
-        log_info "[DRY_RUN] Would download Hytale server files"
-        log_info "[DRY_RUN] CLI URL: $CLI_DOWNLOAD_URL"
+        log_info "[DRY_RUN] Would obtain Hytale server files"
+        log_info "[DRY_RUN] Download mode: $DOWNLOAD_MODE"
+        log_info "[DRY_RUN] CLI URL: ${CLI_DOWNLOAD_URL:-<not set>}"
+        log_info "[DRY_RUN] Launcher path: ${LAUNCHER_PATH:-<not set>}"
         log_info "[DRY_RUN] Patchline: $PATCHLINE"
         log_info "[DRY_RUN] Server dir: $SERVER_DIR"
         log_info "[DRY_RUN] Assets: $ASSETS_FILE"
@@ -198,15 +371,65 @@ main() {
     
     # Check if files already exist
     if check_existing_files; then
-        log_info "Using existing server files"
+        log_info "Using existing server files (version: $(get_installed_version))"
         return 0
     fi
     
-    # Download CLI if needed
-    ensure_cli
-    
-    # Download server files
-    download_server_files
+    # Determine how to obtain files based on mode
+    case "$DOWNLOAD_MODE" in
+        manual)
+            show_manual_instructions
+            die "Server files must be provided manually. See instructions above."
+            ;;
+        
+        launcher)
+            if copy_from_launcher; then
+                log_info "Server files ready!"
+                return 0
+            else
+                die "Failed to copy from launcher. Check LAUNCHER_PATH."
+            fi
+            ;;
+        
+        cli)
+            if [[ -z "$CLI_DOWNLOAD_URL" ]]; then
+                log_error "HYTALE_CLI_URL not set!"
+                log_info "Get the CLI download URL from the official Hytale Server Manual:"
+                log_info "https://support.hytale.com/hc/en-us/articles/Hytale-Server-Manual"
+                die "Set HYTALE_CLI_URL environment variable and try again."
+            fi
+            ensure_cli
+            download_server_files
+            ;;
+        
+        auto|*)
+            # Auto mode: Try methods in order of preference
+            log_info "Auto-detecting best method..."
+            
+            # 1. Try launcher path if set
+            if [[ -n "$LAUNCHER_PATH" ]]; then
+                log_info "Trying launcher copy..."
+                if copy_from_launcher; then
+                    log_info "Server files ready!"
+                    return 0
+                fi
+                log_warn "Launcher copy failed, trying next method..."
+            fi
+            
+            # 2. Try CLI if URL is set
+            if [[ -n "$CLI_DOWNLOAD_URL" ]]; then
+                log_info "Trying CLI download..."
+                ensure_cli
+                download_server_files
+                log_info "Server files ready!"
+                return 0
+            fi
+            
+            # 3. No automatic method available - show instructions
+            show_manual_instructions
+            die "No automatic download method available. See instructions above."
+            ;;
+    esac
     
     log_info "Server files ready!"
 }
