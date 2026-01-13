@@ -46,6 +46,7 @@ readonly LOG_DIR="${DATA_DIR}/logs"
 readonly AOT_CACHE="${SERVER_DIR}/HytaleServer.aot"
 readonly INPUT_PIPE="${DATA_DIR}/server.input"
 readonly VERSION_FILE="${DATA_DIR}/.version"
+readonly SERVER_LOG_DIR="${SERVER_DIR}/logs"
 
 # Server process PID
 SERVER_PID=""
@@ -246,16 +247,37 @@ start_server() {
     SERVER_PID=$!
     
     echo "$SERVER_PID" > "$PID_FILE"
-    log_info "Server started with PID: $SERVER_PID"
+        log_info "Server started with PID: $SERVER_PID"
 
     # Background monitor for auth requirements and persistence
     (
         local auth_triggered=false
         local persistence_set=false
         local auth_trigger_time=0
+        local plaintext_fallback=false
         
         # Give server time to start
         sleep 10
+
+        find_latest_log() {
+            local candidates=(
+                "$LOG_DIR"
+                "$SERVER_LOG_DIR"
+                "$DATA_DIR"
+                "$SERVER_DIR"
+            )
+            for dir in "${candidates[@]}"; do
+                if [[ -d "$dir" ]]; then
+                    local latest
+                    latest=$(find "$dir" -maxdepth 2 -type f \( -name "*.log" -o -name "*.txt" \) -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n 1 | cut -d' ' -f2-)
+                    if [[ -n "$latest" ]]; then
+                        echo "$latest"
+                        return 0
+                    fi
+                fi
+            done
+            return 1
+        }
         
         while true; do
             # Check if server is still running
@@ -265,7 +287,7 @@ start_server() {
             
             # Look for auth requirement in recent stdout (captured via logs)
             local latest_log
-            latest_log=$(ls -t "${LOG_DIR}"/*.log 2>/dev/null | head -n 1)
+            latest_log=$(find_latest_log)
             
             if [[ -n "$latest_log" ]]; then
                 # Trigger auth if needed (only once)
@@ -283,6 +305,14 @@ start_server() {
                     echo "/auth persistence Encrypted" > "$INPUT_PIPE"
                     persistence_set=true
                     log_info "Credentials will now persist across restarts."
+                fi
+
+                # Fallback if encrypted persistence is unavailable (common in containers)
+                if [[ "$plaintext_fallback" == "false" ]] && grep -Eq "Cannot derive encryption key|Failed to get hardware UUID" "$latest_log" 2>/dev/null; then
+                    log_warn "Encrypted credential store unavailable; falling back to plaintext persistence."
+                    echo "/auth persistence Plaintext" > "$INPUT_PIPE"
+                    plaintext_fallback=true
+                    persistence_set=true
                 fi
 
                 # Fallback: attempt to set persistence shortly after triggering auth
