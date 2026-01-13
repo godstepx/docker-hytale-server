@@ -5,11 +5,9 @@
 > [!TIP]
 > **New to Hytale hosting?** Use our web-based config generator: [setuphytale.com](https://setuphytale.com)
 
-## Quick Start (Docker Compose)
+## Quick Start
 
-The recommended way to run the Hytale server is using **Docker Compose**.
-
-1. **Create a `docker-compose.yml` file:**
+### 1. Create `docker-compose.yml`
 
 ```yaml
 services:
@@ -22,61 +20,54 @@ services:
     ports:
       - "5520:5520/udp"
     volumes:
-      - hytale-data:/data
+      - ./data:/data
     environment:
-      - JAVA_XMX=4G
-      - HOME=/data
+      JAVA_XMX: "4G"
+      JAVA_XMS: "1G"
+```
 
-volumes:
-  hytale-data:
+### 2. First Start (Authentication Required)
+
+> [!IMPORTANT]
+> On first launch, you must authenticate with your Hytale account.
+
+```bash
+# Start and watch the logs
+docker compose up
+```
+
+You will see an **authentication URL** in the logs:
+```
+Please visit the following URL to authenticate:
+https://oauth.accounts.hytale.com/oauth2/device/verify?user_code=XXXXXXXX
+```
+
+**Open this URL in your browser** and log in with your Hytale account. The server will continue automatically.
+
+### 3. Run in Background
+
+After successful authentication, stop with `Ctrl+C` and restart in background:
+
+```bash
+docker compose up -d
+```
+
+### 4. View Logs
+
+```bash
+docker logs -f hytale-server
 ```
 
 ---
 
 ## 🛠️ Development & Building
 
-If you want to build the image yourself or push it to your own registry:
+If you want to build the image yourself:
 
 ```bash
-# Build the image
 docker build -t ghcr.io/your-user/docker-hytale-server:latest .
-
-# Push to GitHub Packages (requires login)
 docker push ghcr.io/your-user/docker-hytale-server:latest
 ```
-
-> [!NOTE]
-> Make sure your GitHub package visibility is set to **Public** so others can pull it!
-
-2. **Start the server (first time):**
-
-> [!IMPORTANT]
-> On first launch, you **must** watch the logs to see the authentication link!
-
-```bash
-# First time: Run in foreground to see the auth link
-docker compose up
-
-# Or if already started with -d, watch the logs:
-docker logs -f hytale-server
-```
-
-You will see an authorization URL in the logs:
-```
-Please visit the following URL to authenticate:
-https://oauth.accounts.hytale.com/oauth2/device/verify?user_code=XXXXXXXX
-```
-
-Open this link in your browser and log in with your Hytale account. The server will continue automatically after authorization.
-
-3. **After authorization - run in background:**
-```bash
-# Stop with Ctrl+C, then restart in background
-docker compose up -d
-```
-
-4. **Server registration (optional):**
-If your server needs to register with Hytale's API, check the container logs for a `SERVER_AUTH.url` link.
 
 ---
 
