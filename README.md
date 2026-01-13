@@ -4,6 +4,8 @@
 
 ## Features
 
+- **Automated Authentication** - Auto-triggers `/auth login device` and exports links
+- **Command Piping** - Send console commands via `/data/server.input`
 - **Multiple download methods** - CLI, launcher copy, or manual
 - **Non-root user** (UID 1000) for security
 - **AOT cache support** for faster startup
@@ -46,44 +48,32 @@ docker cp ./Assets.zip hytale-container:/data/Assets.zip
 docker run -d -v hytale-data:/data -p 5520:5520/udp ghcr.io/godstepx/hytale-server:latest
 ```
 
-### Option 2: Hytale Downloader CLI (Recommended for Production)
+Use the official Hytale CLI for automated downloads.
 
-Use the official Hytale CLI for automated downloads. Requires OAuth2 authentication on first run.
-
-1. Start the container (interactive for first download):
+1. Create a `docker-compose.yml` (see below) and run:
 ```bash
-docker run -it \
-  -v hytale-data:/data \
-  -p 5520:5520/udp \
-  ghcr.io/godstepx/hytale-server:latest
+docker compose up -d
 ```
 
-3. Complete Device Authorization when prompted:
-```
-Please visit the following URL to authenticate:
-https://oauth.accounts.hytale.com/oauth2/device/verify?user_code=ABCD1234
-Authorization code: ABCD1234
-```
+3. Complete Device Authorization using the generated link:
+   - Check `AUTH_LINK.url` in your directory for the download authorization link.
+   - Check `SERVER_AUTH.url` for the server registration link.
+   - Open the URL in your browser, log in, and enter the code.
 
-   - Open the URL in your browser
-   - You must be logged into your Hytale account
-   - Enter the code to authorize this download
-   - **Note:** This is a one-time verification per download, similar to Netflix device auth
-
-4. After download completes, server files are cached. Future starts don't need re-auth:
-```bash
-docker run -d -v hytale-data:/data -p 5520:5520/udp ghcr.io/godstepx/hytale-server:latest
-```
+4. The server will automatically detect the authorization and proceed.
 
 ### Server Authentication
 
-After the server starts, authenticate it via the server console:
-```
-> /auth login device
-```
-This is separate from the download auth and registers your server with Hytale's API.
+The server automatically triggers `/auth login device` on first boot. 
+You can find the login link in [SERVER_AUTH.url](./SERVER_AUTH.url). 
+Once authenticated, the session is persisted in the volume and won't be requested again unless it expires.
 
 ## Docker Compose
+
+To start with Docker Compose, run:
+```bash
+docker compose up -d
+```
 
 ```yaml
 services:
@@ -137,6 +127,7 @@ volumes:
 
 - `/data` - Persistent server data, worlds, configs, CLI cache
   - `/data/server/` - Server JAR and binaries
+  - `/data/server.input` - Named pipe for sending console commands
   - `/data/Assets.zip` - Game assets
   - `/data/universe/` - World saves
   - `/data/config.json` - Server configuration

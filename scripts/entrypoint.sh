@@ -97,10 +97,14 @@ build_java_args() {
     local xmx="${JAVA_XMX:-4G}"
     args+=("-Xms${xms}" "-Xmx${xmx}")
     
-    # Use AOT cache if available (faster startup)
-    if [[ -f "$AOT_CACHE" ]]; then
+    # Check if AOT cache is valid and enabled
+    if [[ -f "$AOT_CACHE" && "${ENABLE_AOT:-true}" == "true" ]]; then
         log_info "Using AOT cache for faster startup"
-        args+=("-XX:AOTCache=${AOT_CACHE}")
+        args+=("-XX:AOTCache=$AOT_CACHE")
+        # Suppress AOT mismatch errors from causing confusion if they occur
+        args+=("-Xlog:aot=error")
+    else
+        log_info "AOT cache disabled or not found."
     fi
     
     # Recommended JVM flags for game servers
@@ -215,31 +219,60 @@ start_server() {
     log_info "Server started with PID: $SERVER_PID"
 
     # Trigger auto-auth if required
-    # This is a basic implementation that waits a bit and sends the command
     (
-        sleep 10
-        # Check if we should try to login
         if [[ "${AUTO_AUTH:-true}" == "true" ]]; then
-            log_info "Auto-triggering server authentication..."
-            echo "/auth login device" > "$INPUT_PIPE"
+            log_info "Monitoring for authentication requirements..."
+            local auth_triggered=false
+            local timeout=300 # 5 minutes timeout
+            local count=0
+            
+            while [[ "$auth_triggered" == "false" && $count -lt $timeout ]]; do
+                local latest_log
+                latest_log=$(ls -t "${LOG_DIR}"/*.log 2>/dev/null | head -n 1)
+                
+                if [[ -n "$latest_log" ]]; then
+                    if grep -i "Server session token not available" "$latest_log"; then
+                        log_info "Server requires authentication. Auto-triggering..."
+                        echo "/auth login device" > "$INPUT_PIPE"
+                        auth_triggered=true
+                    fi
+                fi
+                sleep 5
+                count=$((count + 5))
+            done
+            
+            if [[ "$auth_triggered" == "false" ]]; then
+                log_info "No authentication request detected within timeout or already authenticated."
+            fi
         fi
     ) &
 
     # Capture auth link from logs in the background
     (
         local auth_found=false
-        while [[ "$auth_found" == "false" ]]; do
+        local login_success=false
+        while [[ "$login_success" == "false" ]]; do
             # Look for the most recent log file
             local latest_log
             latest_log=$(ls -t "${LOG_DIR}"/*.log 2>/dev/null | head -n 1)
             
             if [[ -n "$latest_log" ]]; then
-                local url
-                url=$(grep -oE "https://oauth.accounts.hytale.com[^\s]*" "$latest_log" | tail -n 1)
-                if [[ -n "$url" ]]; then
-                    echo "$url" > "$SERVER_AUTH_LINK"
-                    log_info "Server Auth URL captured to $SERVER_AUTH_LINK"
-                    auth_found=true
+                # Look for Auth URL if not found yet
+                if [[ "$auth_found" == "false" ]]; then
+                    local url
+                    url=$(grep -oE "https://oauth.accounts.hytale.com[^\s]*" "$latest_log" | tail -n 1)
+                    if [[ -n "$url" ]]; then
+                        echo "$url" > "$SERVER_AUTH_LINK"
+                        log_info "Server Auth URL captured to $SERVER_AUTH_LINK"
+                        auth_found=true
+                    fi
+                fi
+                
+                # Check for successful token exchange
+                if grep -q "Successfully obtained access token" "$latest_log"; then
+                    log_info "Server authentication successful! Clearing $SERVER_AUTH_LINK"
+                    : > "$SERVER_AUTH_LINK" || true
+                    login_success=true
                 fi
             fi
             sleep 5

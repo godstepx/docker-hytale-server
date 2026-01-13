@@ -15,6 +15,7 @@ services:
     environment:
       - JAVA_XMS=1G
       - JAVA_XMX=4G
+      - HOME=/data
       # For first-time setup via CLI, you may need to run interactively:
       # docker-compose run hytale
       - DOWNLOAD_MODE=auto
