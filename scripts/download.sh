@@ -42,6 +42,7 @@ readonly LAUNCHER_PATH="${LAUNCHER_PATH:-}"
 readonly MAX_RETRIES="${DOWNLOAD_MAX_RETRIES:-5}"
 readonly INITIAL_BACKOFF="${DOWNLOAD_INITIAL_BACKOFF:-2}"
 readonly PATCHLINE="${HYTALE_PATCHLINE:-release}"
+CLI_LAST_ERROR=""
 
 # =============================================================================
 # Helper Functions
@@ -188,6 +189,39 @@ check_existing_files() {
 # Download with Device Authorization
 # =============================================================================
 
+run_cli_download() {
+    local cli_bin="$1"
+    shift
+
+    local log_file
+    log_file=$(mktemp)
+    CLI_LAST_ERROR=""
+
+    if "$cli_bin" "$@" 2>&1 | tee "$log_file"; then
+        rm -f "$log_file"
+        return 0
+    fi
+
+    if grep -qi "oauth.accounts.hytale.com" "$log_file" || grep -qi "authenticate" "$log_file"; then
+        local auth_url
+        auth_url=$(grep -oE "https://oauth.accounts.hytale.com[^[:space:]]*" "$log_file" | head -n 1)
+        if [[ -n "$auth_url" ]]; then
+            echo "$auth_url" > "${DATA_DIR}/AUTH_LINK.url"
+            log_info "Auth URL exported to ${DATA_DIR}/AUTH_LINK.url"
+        fi
+        rm -f "$log_file"
+        return 10
+    fi
+
+    CLI_LAST_ERROR=$(grep -m1 -E "context deadline exceeded|Client.Timeout|error fetching manifest|could not get signed URL" "$log_file" | sed 's/^[[:space:]]*//')
+    if [[ -z "$CLI_LAST_ERROR" ]]; then
+        CLI_LAST_ERROR=$(tail -n 5 "$log_file" | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g')
+    fi
+
+    rm -f "$log_file"
+    return 1
+}
+
 download_server_files() {
     log_info "Starting server file download..."
     
@@ -216,31 +250,52 @@ download_server_files() {
     local cli_bin
     cli_bin=$(get_cli_binary)
     
-    # Run the CLI - it will handle auth interactively
-    # We use a temporary file to capture output for URL extraction while still showing it to the user
-    local log_file
-    log_file=$(mktemp)
-    
-    # Run the CLI, tee output to log_file for extraction
-    if ! "$cli_bin" "${download_args[@]}" 2>&1 | tee "$log_file"; then
-        # Check if it was an auth failure
-        if grep -q "authenticate" "$log_file"; then
-            local auth_url
-            auth_url=$(grep -oE "https://oauth.accounts.hytale.com[^\s]*" "$log_file" | head -n 1)
-            if [[ -n "$auth_url" ]]; then
-                echo "$auth_url" > "${DATA_DIR}/AUTH_LINK.url"
-                log_info "Auth URL exported to ${DATA_DIR}/AUTH_LINK.url"
-            fi
+    local attempt=1
+    local success=false
+    local auth_needed=false
+    local last_error=""
+
+    while [[ $attempt -le $MAX_RETRIES ]]; do
+        log_info "Downloader attempt $attempt/$MAX_RETRIES..."
+        if run_cli_download "$cli_bin" "${download_args[@]}"; then
+            success=true
+            break
         fi
-        rm -f "$log_file"
-        die "Hytale Downloader failed. Please check the output above."
+
+        local result=$?
+        if [[ $result -eq 10 ]]; then
+            auth_needed=true
+            break
+        fi
+        last_error="$CLI_LAST_ERROR"
+        if [[ $attempt -ge $MAX_RETRIES ]]; then
+            break
+        fi
+
+        local backoff
+        backoff=$(calculate_backoff "$attempt")
+        log_warn "Download attempt ${attempt} failed${last_error:+: ${last_error}}. Retrying in ${backoff}s..."
+        sleep "$backoff"
+        ((attempt++))
+    done
+
+    if [[ "$auth_needed" == "true" ]]; then
+        die "Authentication required. Open the URL in ${DATA_DIR}/AUTH_LINK.url, complete login, and restart the container."
     fi
-    
+
+    if [[ "$success" == "false" ]]; then
+        local error_message="Failed to download Hytale server files after $MAX_RETRIES attempts."
+        if [[ -n "$last_error" ]]; then
+            error_message+=" Last error: ${last_error}."
+        fi
+        error_message+=" Check your network connectivity or use LAUNCHER_PATH / DOWNLOAD_MODE=manual to supply files."
+        die "$error_message"
+    fi
+
     # If successful, clear any old auth link file
     if [[ -f "${DATA_DIR}/AUTH_LINK.url" ]]; then
         printf "" > "${DATA_DIR}/AUTH_LINK.url" 2>/dev/null || true
     fi
-    rm -f "$log_file"
     
     log_info "Download complete, extracting..."
     

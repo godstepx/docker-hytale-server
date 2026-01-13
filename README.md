@@ -136,6 +136,8 @@ The image handles `SIGTERM` to save world data before exiting.
 | `SERVER_PORT` | `5520` | UDP port (QUIC) |
 | `AUTH_MODE` | `authenticated` | `authenticated` or `offline` |
 | `ENABLE_AOT` | `true` | Enable/Disable AOT cache |
+| `DOWNLOAD_MAX_RETRIES` | `5` | How many times to retry the Hytale downloader before failing |
+| `DOWNLOAD_INITIAL_BACKOFF` | `2` | Initial backoff (seconds) between retries; grows exponentially |
 
 ### Token Passthrough (GSP/Advanced)
 
