@@ -61,12 +61,12 @@ assert_json_value() {
 
 pass() {
     echo -e "  ${GREEN}PASS${NC}"
-    ((PASSED++))
+    ((PASSED+=1))
 }
 
 fail() {
     echo -e "  ${RED}FAIL${NC}: $1"
-    ((FAILED++))
+    ((FAILED+=1))
 }
 
 # =============================================================================
