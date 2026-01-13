@@ -16,3 +16,10 @@ Thumbs.db
 
 # Transient session files
 *.url
+
+# Node/Bun
+node_modules/
+dist/
+*.tsbuildinfo
+bun.lock
+

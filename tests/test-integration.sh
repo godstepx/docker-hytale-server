@@ -59,7 +59,7 @@ test_dry_run_mode() {
     local output
     output=$(docker run --rm \
         -e DRY_RUN=true \
-        -e SERVER_URL=https://example.com/server.jar \
+        -e DOWNLOAD_MODE=auto \
         "${IMAGE_NAME}:test" 2>&1) || true
     
     if [[ "$output" == *"[DRY_RUN]"* ]]; then
@@ -70,37 +70,43 @@ test_dry_run_mode() {
     fi
 }
 
-test_missing_server_url_fails() {
-    echo "Test: Missing SERVER_URL fails appropriately"
+test_download_modes() {
+    echo "Test: Download mode handling works"
     
     local output
     output=$(docker run --rm \
         -e DRY_RUN=true \
+        -e DOWNLOAD_MODE=auto \
         "${IMAGE_NAME}:test" 2>&1) || true
     
-    if [[ "$output" == *"SERVER_URL is required"* ]]; then
+    if [[ "$output" == *"[DRY_RUN]"* ]] && [[ "$output" == *"download"* ]]; then
         pass
     else
-        fail "Should fail when SERVER_URL is missing"
+        fail "Download mode not working correctly"
         echo "Output: $output"
     fi
 }
 
 test_config_generation() {
-    echo "Test: Configuration is generated correctly"
+    echo "Test: Configuration generation works in DRY_RUN"
     
     mkdir -p "${TEST_DATA_DIR}/data"
     
-    docker run --rm \
+    local output
+    output=$(docker run --rm \
         -v "${TEST_DATA_DIR}/data:/data" \
         -e DRY_RUN=true \
-        -e SERVER_URL=https://example.com/server.jar \
+        -e DOWNLOAD_MODE=auto \
         -e SERVER_NAME="Test Server" \
         -e MAX_PLAYERS=50 \
-        "${IMAGE_NAME}:test" 2>&1 || true
+        "${IMAGE_NAME}:test" 2>&1) || true
     
-    # In DRY_RUN mode, config won't be created, but we can check the output
-    pass
+    # In DRY_RUN mode, we just check output
+    if [[ "$output" == *"[DRY_RUN]"* ]]; then
+        pass
+    else
+        fail "DRY_RUN output not found"
+    fi
 }
 
 test_non_root_user() {
@@ -119,17 +125,17 @@ test_non_root_user() {
     fi
 }
 
-test_scripts_exist() {
-    echo "Test: All scripts exist and are executable"
+test_binaries_exist() {
+    echo "Test: All binaries exist and are executable"
     
-    local scripts="entrypoint.sh download.sh generate-config.sh healthcheck.sh log-utils.sh"
+    local binaries="entrypoint download generate-config healthcheck"
     local all_exist=true
     
-    for script in $scripts; do
+    for binary in $binaries; do
         if ! docker run --rm \
             --entrypoint test \
-            "${IMAGE_NAME}:test" -x "/opt/hytale/scripts/$script" 2>/dev/null; then
-            echo "  Missing or not executable: $script"
+            "${IMAGE_NAME}:test" -x "/opt/hytale/bin/$binary" 2>/dev/null; then
+            echo "  Missing or not executable: $binary"
             all_exist=false
         fi
     done
@@ -137,7 +143,7 @@ test_scripts_exist() {
     if $all_exist; then
         pass
     else
-        fail "Some scripts are missing or not executable"
+        fail "Some binaries are missing or not executable"
     fi
 }
 
@@ -159,16 +165,16 @@ test_template_exists() {
 
 main() {
     echo "=============================================="
-    echo "Integration Tests"
+    echo "Integration Tests (TypeScript/Bun)"
     echo "=============================================="
     echo ""
     
     test_image_builds || exit 1
     test_dry_run_mode
-    test_missing_server_url_fails
+    test_download_modes
     test_config_generation
     test_non_root_user
-    test_scripts_exist
+    test_binaries_exist
     test_template_exists
     
     echo ""

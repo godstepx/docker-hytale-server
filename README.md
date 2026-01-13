@@ -162,5 +162,91 @@ For token acquisition, see the [Server Provider Authentication Guide](https://su
   - `/data/server.input` - Named pipe for console commands
   - `/data/universe/` - World saves
 
+## Development
+
+This project uses [Just](https://github.com/casey/just) as a command runner for common development tasks. The server scripts are written in TypeScript and compiled to standalone binaries using Bun.
+
+### Prerequisites
+- Docker
+- [Just](https://github.com/casey/just#installation) (`brew install just` on macOS)
+- [Bun](https://bun.sh) (for local development and testing)
+- hadolint (for Dockerfile linting)
+
+### Available Commands
+
+Run `just` or `just --list` to see all available recipes:
+
+```bash
+just                    # Show help
+just build              # Build the Docker image (compiles TypeScript in Docker)
+just build-multi        # Build multi-platform image and push to GHCR
+just run                # Run container in dry-run mode for testing
+just run-interactive    # Start interactive shell in container
+just test               # Run all tests (TypeScript + integration)
+just lint               # Run TypeScript type checking and hadolint
+just lint-ts            # Run TypeScript type checking only
+just format             # Format TypeScript code with Prettier
+just build-binaries     # Build TypeScript binaries locally (development)
+just clean              # Remove built images and test data
+```
+
+### Quick Start for Contributors
+
+```bash
+# Install Bun dependencies
+just install
+
+# Build the Docker image (compiles TypeScript binaries inside Docker)
+just build
+
+# Run TypeScript type checking
+just lint-ts
+
+# Run tests
+just test
+
+# Test the container locally
+just run
+
+# Access container shell for debugging
+just run-interactive
+```
+
+### Local Development
+
+The server scripts are written in TypeScript (in `src/`) and compiled to standalone Bun binaries during the Docker build. For local development:
+
+```bash
+# Install dependencies
+bun install
+
+# Run scripts directly with Bun (for testing)
+bun run src/entrypoint.ts
+bun run src/download.ts
+bun run src/healthcheck.ts
+
+# Build binaries locally
+bun run build
+
+# Format code
+bun run format
+
+# Type check
+bun run lint
+```
+
+**Note:** The Docker build uses a multi-stage process that compiles TypeScript to standalone binaries, eliminating the need for bash, curl, jq, and unzip in the production image!
+
+### Environment Variables
+
+The Justfile uses these variables (can be overridden):
+- `IMAGE_NAME` - Docker image name (default: `ghcr.io/godstepx/docker-hytale-server`)
+- `IMAGE_TAG` - Image tag (default: `latest`)
+
+Override with environment variables:
+```bash
+IMAGE_TAG=dev just build
+```
+
 ## License
 MIT

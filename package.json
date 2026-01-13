@@ -1,0 +1,29 @@
+{
+  "name": "docker-hytale-server",
+  "version": "1.0.0",
+  "description": "Hytale Dedicated Server Docker Image",
+  "type": "module",
+  "scripts": {
+    "build": "bun run build:all",
+    "build:all": "bun run build:entrypoint && bun run build:download && bun run build:healthcheck && bun run build:generate-config",
+    "build:entrypoint": "bun build ./src/entrypoint.ts --compile --target=bun-linux-x64-baseline --outfile dist/entrypoint",
+    "build:download": "bun build ./src/download.ts --compile --target=bun-linux-x64-baseline --outfile dist/download",
+    "build:healthcheck": "bun build ./src/healthcheck.ts --compile --target=bun-linux-x64-baseline --outfile dist/healthcheck",
+    "build:generate-config": "bun build ./src/generate-config.ts --compile --target=bun-linux-x64-baseline --outfile dist/generate-config",
+    "dev:entrypoint": "bun run src/entrypoint.ts",
+    "dev:download": "bun run src/download.ts",
+    "dev:healthcheck": "bun run src/healthcheck.ts",
+    "dev:generate-config": "bun run src/generate-config.ts",
+    "lint": "tsc --noEmit",
+    "format": "prettier --write src/",
+    "format:check": "prettier --check src/"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "prettier": "^3.2.4",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "fflate": "^0.8.1"
+  }
+}
