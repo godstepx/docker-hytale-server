@@ -40,6 +40,9 @@ setup_test() {
     unset SERVER_NAME MAX_PLAYERS VIEW_DISTANCE DIFFICULTY MOTD SEED
     unset HYTALE_STRICT_CONFIG
     export DRY_RUN=false
+    
+    # Clean up previous output
+    rm -f "$CONFIG_OUTPUT"
 }
 
 assert_json_value() {
