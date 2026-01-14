@@ -378,11 +378,14 @@ start_server() {
                             log_info "Authentication complete! Tokens saved."
                             log_info "Restarting server to apply new tokens..."
                             # Kill the server so it restarts with tokens
-                            # Read PID from file since $SERVER_PID is not available in subshell
+                            # Use hardcoded path since readonly vars aren't available in subshell
                             local pid
-                            pid=$(cat "$PID_FILE" 2>/dev/null)
+                            pid=$(cat "/data/server.pid" 2>/dev/null)
                             if [[ -n "$pid" ]]; then
-                                kill -SIGTERM "$pid" 2>/dev/null || true
+                                log_info "Sending SIGTERM to PID $pid..."
+                                kill -SIGTERM "$pid" 2>/dev/null || log_warn "Failed to kill process $pid"
+                            else
+                                log_warn "Could not find server PID"
                             fi
                         else
                             log_error "Authentication failed. Please try again."
@@ -413,9 +416,12 @@ start_server() {
                             log_info "Authentication complete! Tokens saved."
                             log_info "Restarting server to apply new tokens..."
                             local pid
-                            pid=$(cat "$PID_FILE" 2>/dev/null)
+                            pid=$(cat "/data/server.pid" 2>/dev/null)
                             if [[ -n "$pid" ]]; then
-                                kill -SIGTERM "$pid" 2>/dev/null || true
+                                log_info "Sending SIGTERM to PID $pid..."
+                                kill -SIGTERM "$pid" 2>/dev/null || log_warn "Failed to kill process $pid"
+                            else
+                                log_warn "Could not find server PID"
                             fi
                         fi
                     ) &
