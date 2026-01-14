@@ -48,7 +48,7 @@ readonly INPUT_PIPE="${DATA_DIR}/server.input"
 readonly VERSION_FILE="${DATA_DIR}/.version"
 readonly SERVER_LOG_DIR="${SERVER_DIR}/logs"
 readonly AUTO_AUTH_DEVICE_ON_START="${AUTO_AUTH_DEVICE_ON_START:-true}"
-readonly AUTO_AUTH_TRIGGER_DELAY="${AUTO_AUTH_TRIGGER_DELAY:-30}"
+readonly AUTO_AUTH_TRIGGER_DELAY="${AUTO_AUTH_TRIGGER_DELAY:-5}"
 
 # Server process PID
 SERVER_PID=""
@@ -244,8 +244,13 @@ start_server() {
     # Start server in background with input from pipe
     cd "$DATA_DIR"
     
+    # Create a log file that the monitor can read
+    local SERVER_OUTPUT_LOG="${LOG_DIR}/server-output.log"
+    : > "$SERVER_OUTPUT_LOG"  # Truncate/create the log file
+    
     # We use a helper process to keep the pipe open
-    tail -f "$INPUT_PIPE" | java $java_args &
+    # Server output is written to both stdout and log file for monitoring
+    tail -f "$INPUT_PIPE" | java $java_args 2>&1 | tee -a "$SERVER_OUTPUT_LOG" &
     SERVER_PID=$!
     
     echo "$SERVER_PID" > "$PID_FILE"
@@ -255,14 +260,25 @@ start_server() {
     (
         local auth_triggered=false
         local persistence_set=false
-        local auth_trigger_time=0
+        local auth_trigger_time
+        auth_trigger_time=$(date +%s)
         local plaintext_fallback=false
         local startup_auth_sent=false
+        local server_booted=false
         
-        # Give server time to start
-        sleep 10
+        # The log file we're monitoring (created by tee above)
+        local SERVER_OUTPUT_LOG="${LOG_DIR}/server-output.log"
+        
+        # Give server time to start producing output
+        sleep 5
 
         find_latest_log() {
+            # Prefer our known log file first
+            if [[ -f "$SERVER_OUTPUT_LOG" ]]; then
+                echo "$SERVER_OUTPUT_LOG"
+                return 0
+            fi
+            
             local candidates=(
                 "$LOG_DIR"
                 "$SERVER_LOG_DIR"
@@ -293,9 +309,16 @@ start_server() {
             latest_log=$(find_latest_log)
             
             if [[ -n "$latest_log" ]]; then
-                # Trigger auth if needed (only once)
-                if [[ "$auth_triggered" == "false" ]] && grep -Eq "Server session token not available|No server tokens configured" "$latest_log" 2>/dev/null; then
+                # Check if server has finished booting
+                if [[ "$server_booted" == "false" ]] && grep -q "Server Booted" "$latest_log" 2>/dev/null; then
+                    server_booted=true
+                    log_info "Server boot detected."
+                fi
+                
+                # Trigger auth if needed (only once, and only after server boot)
+                if [[ "$auth_triggered" == "false" && "$server_booted" == "true" ]] && grep -Eq "Server session token not available|No server tokens configured" "$latest_log" 2>/dev/null; then
                     log_info "Server requires authentication. Auto-triggering /auth login device..."
+                    sleep 1  # Small delay to ensure server is ready for commands
                     echo "/auth login device" > "$INPUT_PIPE"
                     auth_triggered=true
                     auth_trigger_time=$(date +%s)
@@ -330,12 +353,13 @@ start_server() {
                 fi
             fi
             
-            # Startup fallback: if no auth seen yet, trigger after delay
-            if [[ "$AUTO_AUTH_DEVICE_ON_START" == "true" && "$auth_triggered" == "false" && "$startup_auth_sent" == "false" ]]; then
+            # Startup fallback: if server booted but no auth triggered yet
+            if [[ "$AUTO_AUTH_DEVICE_ON_START" == "true" && "$auth_triggered" == "false" && "$startup_auth_sent" == "false" && "$server_booted" == "true" ]]; then
                 local now
                 now=$(date +%s)
                 if (( now - auth_trigger_time >= AUTO_AUTH_TRIGGER_DELAY )); then
                     log_info "Startup auth fallback: triggering /auth login device..."
+                    sleep 1
                     echo "/auth login device" > "$INPUT_PIPE"
                     startup_auth_sent=true
                     auth_triggered=true
@@ -343,7 +367,7 @@ start_server() {
                 fi
             fi
 
-            sleep 5
+            sleep 2
         done
     ) &
     
