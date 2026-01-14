@@ -24,6 +24,15 @@ fix_permissions() {
         chown -R hytale:hytale /data 2>/dev/null || true
         chown -R hytale:hytale /opt/hytale 2>/dev/null || true
         
+        # Create a persistent machine UUID for potential future use
+        local uuid_file="/data/.machine-uuid"
+        if [[ ! -f "$uuid_file" ]]; then
+            log_info "Generating persistent machine UUID..."
+            cat /proc/sys/kernel/random/uuid > "$uuid_file"
+            chmod 644 "$uuid_file"
+            chown hytale:hytale "$uuid_file"
+        fi
+        
         log_info "Dropping privileges to hytale user..."
         exec su-exec hytale "$0" "$@"
     fi
@@ -207,6 +216,19 @@ build_java_args() {
         log_info "Backups enabled: every ${BACKUP_FREQUENCY:-30} minutes to ${BACKUP_DIR:-/data/backups}"
     fi
     
+    # Pre-configured session tokens (for hosting providers or persistent auth)
+    # These can be obtained via the OAuth2 device flow and Game Session API
+    if [[ -n "${HYTALE_SERVER_SESSION_TOKEN:-}" ]]; then
+        args+=("--session-token" "$HYTALE_SERVER_SESSION_TOKEN")
+        log_info "Using pre-configured session token"
+    fi
+    if [[ -n "${HYTALE_SERVER_IDENTITY_TOKEN:-}" ]]; then
+        args+=("--identity-token" "$HYTALE_SERVER_IDENTITY_TOKEN")
+    fi
+    if [[ -n "${HYTALE_OWNER_UUID:-}" ]]; then
+        args+=("--owner-uuid" "$HYTALE_OWNER_UUID")
+    fi
+    
     echo "${args[@]}"
 }
 
@@ -262,7 +284,6 @@ start_server() {
         local persistence_set=false
         local auth_trigger_time
         auth_trigger_time=$(date +%s)
-        local plaintext_fallback=false
         local startup_auth_sent=false
         local server_booted=false
         
@@ -324,27 +345,13 @@ start_server() {
                     auth_trigger_time=$(date +%s)
                 fi
                 
-                # Set persistence after successful auth (only once)
-                if [[ "$persistence_set" == "false" ]] && grep -Eq "Authentication successful|auth\.login\.device\.success" "$latest_log" 2>/dev/null; then
-                    log_info "Auth successful! Setting persistence to Encrypted..."
-                    sleep 1
-                    echo "/auth persistence Encrypted" > "$INPUT_PIPE"
+                # Log info about persistence limitation in Docker
+                if [[ "$persistence_set" == "false" ]] && grep -Eq "Authentication successful" "$latest_log" 2>/dev/null; then
+                    log_info "Auth successful!"
+                    log_warn "Note: Encrypted credential storage is not available in Docker containers."
+                    log_warn "Credentials will be stored in memory only and lost on restart."
+                    log_warn "For persistent auth, use HYTALE_SERVER_SESSION_TOKEN and HYTALE_SERVER_IDENTITY_TOKEN environment variables."
                     persistence_set=true
-                    log_info "Credentials will now persist across restarts."
-                fi
-
-                # Fallback: attempt to set persistence 30 seconds after triggering auth
-                # (only if auth was successful, detected by checking log again)
-                if [[ "$persistence_set" == "false" && "$auth_triggered" == "true" ]]; then
-                    local now
-                    now=$(date +%s)
-                    if (( now - auth_trigger_time >= 30 )); then
-                        if grep -Eq "Authentication successful" "$latest_log" 2>/dev/null; then
-                            log_info "Fallback: Attempting to enable credential persistence..."
-                            echo "/auth persistence Encrypted" > "$INPUT_PIPE"
-                            persistence_set=true
-                        fi
-                    fi
                 fi
             fi
             
