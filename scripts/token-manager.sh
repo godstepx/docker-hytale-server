@@ -520,7 +520,6 @@ case "${1:-}" in
     check)
         if has_session_tokens; then
             echo "Valid session tokens found"
-            get_session_tokens | jq .
             exit 0
         else
             echo "No valid session tokens"
@@ -530,7 +529,6 @@ case "${1:-}" in
     acquire)
         if acquire_session_tokens; then
             echo "Session tokens acquired successfully"
-            get_session_tokens | jq .
             exit 0
         else
             echo "Failed to acquire session tokens"
@@ -541,7 +539,6 @@ case "${1:-}" in
         # Interactive device auth flow
         if device_auth_flow; then
             echo "Authentication complete!"
-            get_session_tokens | jq .
             exit 0
         else
             echo "Authentication failed"

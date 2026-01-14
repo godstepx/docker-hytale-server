@@ -471,7 +471,6 @@ main() {
         
         launcher)
             if copy_from_launcher; then
-                log_info "Server files ready!"
                 return 0
             else
                 die "Failed to copy from launcher. Check LAUNCHER_PATH."
@@ -497,7 +496,6 @@ main() {
             if [[ -n "$LAUNCHER_PATH" ]]; then
                 log_info "Trying launcher copy..."
                 if copy_from_launcher; then
-                    log_info "Server files ready!"
                     return 0
                 fi
                 log_warn "Launcher copy failed, trying next method..."
@@ -508,7 +506,6 @@ main() {
                 log_debug "Using CLI download..."
                 ensure_cli
                 download_server_files
-                log_info "Server files ready!"
                 return 0
             fi
             
@@ -517,8 +514,6 @@ main() {
             die "No automatic download method available. See instructions above."
             ;;
     esac
-    
-    log_info "Server files ready!"
 }
 
 # Run main if executed directly
