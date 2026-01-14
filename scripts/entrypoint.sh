@@ -378,7 +378,12 @@ start_server() {
                             log_info "Authentication complete! Tokens saved."
                             log_info "Restarting server to apply new tokens..."
                             # Kill the server so it restarts with tokens
-                            kill -SIGTERM "$SERVER_PID" 2>/dev/null || true
+                            # Read PID from file since $SERVER_PID is not available in subshell
+                            local pid
+                            pid=$(cat "$PID_FILE" 2>/dev/null)
+                            if [[ -n "$pid" ]]; then
+                                kill -SIGTERM "$pid" 2>/dev/null || true
+                            fi
                         else
                             log_error "Authentication failed. Please try again."
                         fi
@@ -407,7 +412,11 @@ start_server() {
                         if "${SCRIPT_DIR}/token-manager.sh" auth; then
                             log_info "Authentication complete! Tokens saved."
                             log_info "Restarting server to apply new tokens..."
-                            kill -SIGTERM "$SERVER_PID" 2>/dev/null || true
+                            local pid
+                            pid=$(cat "$PID_FILE" 2>/dev/null)
+                            if [[ -n "$pid" ]]; then
+                                kill -SIGTERM "$pid" 2>/dev/null || true
+                            fi
                         fi
                     ) &
                 fi
