@@ -1,4 +1,3 @@
-#!/usr/bin/env bun
 /**
  * Download Adapter - Hytale Server Files Management
  * Handles obtaining server files via multiple methods:

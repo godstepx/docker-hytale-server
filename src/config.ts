@@ -63,7 +63,7 @@ export const DOWNLOAD_INITIAL_BACKOFF = getEnvInt("DOWNLOAD_INITIAL_BACKOFF", 2)
 
 // Download behavior flags
 export const FORCE_DOWNLOAD = getEnvBool("FORCE_DOWNLOAD", false);
-export const CHECK_UPDATES = getEnvBool("CHECK_UPDATES", false);
+export const CHECK_UPDATES = getEnvBool("CHECK_UPDATES", true);
 export const SKIP_CLI_UPDATE_CHECK = getEnvBool("SKIP_CLI_UPDATE_CHECK", false);
 
 // =============================================================================
@@ -88,6 +88,14 @@ export const DISABLE_SENTRY = getEnvBool("DISABLE_SENTRY", false);
 export const ACCEPT_EARLY_PLUGINS = getEnvBool("ACCEPT_EARLY_PLUGINS", false);
 export const ALLOW_OP = getEnvBool("ALLOW_OP", false);
 
+// Advanced server options
+export const TRANSPORT_TYPE = getEnv("TRANSPORT_TYPE", "");
+export const BOOT_COMMANDS = getEnv("BOOT_COMMANDS", "");
+export const ADDITIONAL_MODS_DIR = getEnv("ADDITIONAL_MODS_DIR", "");
+export const ADDITIONAL_PLUGINS_DIR = getEnv("ADDITIONAL_PLUGINS_DIR", "");
+export const SERVER_LOG_LEVEL = getEnv("SERVER_LOG_LEVEL", "");
+export const OWNER_NAME = getEnv("OWNER_NAME", "");
+
 // =============================================================================
 // Backup Configuration
 // =============================================================================
@@ -95,6 +103,7 @@ export const ALLOW_OP = getEnvBool("ALLOW_OP", false);
 export const ENABLE_BACKUPS = getEnvBool("ENABLE_BACKUPS", false);
 export const BACKUP_DIR = getEnv("BACKUP_DIR", resolve(DATA_DIR, "backups"));
 export const BACKUP_FREQUENCY = getEnv("BACKUP_FREQUENCY", "30");
+export const BACKUP_MAX_COUNT = getEnv("BACKUP_MAX_COUNT", "5");
 
 // =============================================================================
 // Logging Configuration
@@ -108,3 +117,32 @@ export const CONTAINER_LOG_LEVEL = getEnv("CONTAINER_LOG_LEVEL", "INFO").toUpper
 
 export const DRY_RUN = getEnvBool("DRY_RUN", false);
 export const TZ = getEnv("TZ", "UTC");
+
+// =============================================================================
+// Token Configuration
+// =============================================================================
+
+// Token file path
+export const OAUTH_TOKEN_FILE = resolve(AUTH_CACHE, ".oauth-tokens.json");
+
+// Environment variable overrides (for hosting providers)
+// These bypass OAuth flow entirely - tokens managed externally
+export const HYTALE_SERVER_SESSION_TOKEN = getEnv("HYTALE_SERVER_SESSION_TOKEN", "");
+export const HYTALE_SERVER_IDENTITY_TOKEN = getEnv("HYTALE_SERVER_IDENTITY_TOKEN", "");
+export const HYTALE_OWNER_UUID = getEnv("HYTALE_OWNER_UUID", "");
+
+// Behavior
+export const AUTO_AUTH_ON_START = getEnvBool("AUTO_AUTH_ON_START", true);
+
+// Background OAuth refresh settings
+// Refresh interval: how often to check if tokens need refresh (default: 24 hours)
+export const OAUTH_REFRESH_CHECK_INTERVAL = getEnvInt("OAUTH_REFRESH_CHECK_INTERVAL", 86400000);
+// Threshold: refresh when token has this many days left (default: 7 days)
+export const OAUTH_REFRESH_THRESHOLD_DAYS = getEnvInt("OAUTH_REFRESH_THRESHOLD_DAYS", 7);
+
+// =============================================================================
+// Log Management
+// =============================================================================
+
+// Log retention: delete Hytale server logs older than this many days (0 = disable cleanup)
+export const LOG_RETENTION_DAYS = getEnvInt("LOG_RETENTION_DAYS", 7);

@@ -35,10 +35,11 @@ the key project concepts and default guidelines. Update as needed.
 ## Repository Layout
 - `Dockerfile`: multi-stage build (Bun compilation + CLI download + production), env defaults, healthcheck, non-root user.
 - `Justfile`: development task runner (build, test, lint, format, etc.).
-- `src/setup.ts`: setup script (download -> validate -> write java command) - compiled to binary. Contains documented JVM flags.
-- `src/entrypoint.sh`: shell wrapper that runs setup, then execs Java (avoids Bun ARM64 crashes).
+- `src/entrypoint.ts`: main entrypoint - downloads files, acquires tokens, starts Java, handles signals. Compiled to binary.
+- `src/setup.ts`: setup utilities - Java args building, file validation. Imported by entrypoint.
+- `src/token-manager.ts`: OAuth2 device flow, token refresh, session creation. Imported by entrypoint (not a standalone binary).
 - `src/download.ts`: download/copy server files + version tracking - imported by entrypoint.
-- `src/config.ts`: centralized configuration with BUNDLED_CLI_DIR and USER_CLI_DIR paths.
+- `src/config.ts`: centralized configuration with all env var defaults.
 - `src/healthcheck.ts`: health checks for Docker - compiled to binary.
 - `src/log-utils.ts`: logging module (imported by other TypeScript modules).
 - `package.json`: Bun project manifest with build scripts.
@@ -47,34 +48,51 @@ the key project concepts and default guidelines. Update as needed.
 - `tests/test-integration.sh`: integration tests for Docker container.
 
 ## Container Runtime Flow
-1. Entrypoint binary (`/opt/hytale/bin/entrypoint`) sets up `/data` and `/data/server`.
+1. Entrypoint binary (`/opt/hytale/bin/entrypoint`) sets up `/data` directories.
 2. Download module ensures server files are present (by mode: cli, launcher, or manual).
-3. Java starts `HytaleServer.jar` with assets and command-line args.
-4. SIGTERM -> graceful shutdown (30s timeout); SIGKILL if needed.
-5. Hytale manages its own `config.json` files in `/data`.
+3. Token manager acquires OAuth tokens and creates game session (or uses env vars).
+4. Java starts `HytaleServer.jar` with assets, auth tokens, and command-line args.
+5. Background OAuth refresh loop keeps tokens alive for indefinite runs (30+ days).
+6. SIGTERM -> graceful shutdown (30s timeout); SIGKILL if needed.
+7. Hytale manages its own `config.json` files in `/data`.
 
 **Technical Implementation:**
 - TypeScript compiled to standalone Bun binaries during Docker build.
-- Only 2 binaries: `entrypoint` (includes download module) and `healthcheck`.
+- 2 binaries: `entrypoint` (includes token-manager module) and `healthcheck`.
 - Binaries are self-contained (no Node.js/Bun runtime needed in production image).
 - Uses Bun's built-in APIs: `fetch()` for HTTP, native JSON parsing, system `unzip` for extraction.
 - Process management via `Bun.spawn()` for external commands (Java, Hytale CLI, system utils).
 - Internal modules use standard TypeScript imports (bundled, no process spawning).
+- OAuth tokens stored in `/data/.auth/.oauth-tokens.json` for persistence across restarts.
+- Hytale server handles game session refresh internally when given `--session-token`.
 
 ## Server Command-Line Flags (Verified)
 All flags documented via `java -jar HytaleServer.jar --help`:
 - `--assets <Path>`: Asset directory
 - `--bind <InetSocketAddress>`: Address to listen on (default: 0.0.0.0:5520)
 - `--auth-mode <authenticated|offline>`: Authentication mode (default: authenticated)
+- `--session-token <token>`: Pre-configured session token (JWT)
+- `--identity-token <token>`: Pre-configured identity token (JWT)
+- `--owner-uuid <uuid>`: Profile UUID for session
 - `--backup`: Enable automatic backups
 - `--backup-dir <Path>`: Backup directory
 - `--backup-frequency <Integer>`: Backup interval in minutes (default: 30)
+- `--backup-max-count <Integer>`: Maximum number of backups to keep (default: 5)
 - `--allow-op`: Allow operator commands
 - `--accept-early-plugins`: Acknowledge loading early plugins (unsupported)
+- `--early-plugins <Path>`: Additional early plugin directories
 - `--disable-sentry`: Disable crash reporting
+- `--transport <TransportType>`: Transport protocol (default: QUIC)
+- `--boot-command <String>`: Run command on boot (can be specified multiple times)
+- `--mods <Path>`: Additional mods directories
+- `--log <KeyValueHolder>`: Set logger level (e.g., root=DEBUG)
+- `--owner-name <String>`: Display name for server owner
 
-**Authentication:** Server authentication happens AFTER startup via console command:
-```/auth login device```
+**Authentication:** Server can authenticate in two ways:
+1. Pre-startup via OAuth tokens passed with `--session-token` and `--identity-token` (used by this image)
+2. Post-startup via console command: `/auth login device`
+
+The server auto-refreshes game session tokens when started with `--session-token`.
 
 Reference: https://support.hytale.com/hc/en-us/articles/45326769420827
 
@@ -95,14 +113,18 @@ Based on Aikar's flags (widely used for Minecraft servers), adapted for Hytale.
 - Paths: `BUNDLED_CLI_DIR` (default: `/opt/hytale/cli`), `DATA_DIR` (default: `/data`).
 - Java: `JAVA_XMS`, `JAVA_XMX`, `JAVA_OPTS`, `ENABLE_AOT_CACHE`.
 - Server: `SERVER_PORT`, `BIND_ADDRESS`, `AUTH_MODE`, `DISABLE_SENTRY`,
-  `ENABLE_BACKUPS`, `BACKUP_FREQUENCY`, `BACKUP_DIR`, `ACCEPT_EARLY_PLUGINS`, `ALLOW_OP`.
-- Logging: `CONTAINER_LOG_LEVEL`.
+  `ENABLE_BACKUPS`, `BACKUP_FREQUENCY`, `BACKUP_DIR`, `BACKUP_MAX_COUNT`, `ACCEPT_EARLY_PLUGINS`, `ALLOW_OP`.
+- Advanced: `TRANSPORT_TYPE`, `BOOT_COMMANDS`, `ADDITIONAL_MODS_DIR`, `ADDITIONAL_PLUGINS_DIR`,
+  `SERVER_LOG_LEVEL`, `OWNER_NAME`.
+- Auth tokens (for hosting providers): `HYTALE_SERVER_SESSION_TOKEN`, `HYTALE_SERVER_IDENTITY_TOKEN`, `HYTALE_OWNER_UUID`.
+- Auth behavior: `AUTO_AUTH_ON_START` (default: true), `OAUTH_REFRESH_CHECK_INTERVAL` (default: 24h), `OAUTH_REFRESH_THRESHOLD_DAYS` (default: 7).
+- Logging: `CONTAINER_LOG_LEVEL`, `LOG_RETENTION_DAYS` (default: 7, deletes old server logs).
 - Misc: `DRY_RUN`, `TZ`.
 
 ## Data Layout
 
 ### Image paths (read-only)
-- `/opt/hytale/bin/`: compiled entrypoint and healthcheck binaries.
+- `/opt/hytale/bin/`: compiled binaries (entrypoint, healthcheck).
 - `/opt/hytale/cli/`: **bundled Hytale Downloader CLI** (pre-downloaded at build time).
 
 ### Volume /data (persistent, writable)
@@ -110,7 +132,8 @@ Based on Aikar's flags (widely used for Minecraft servers), adapted for Hytale.
 - `/data/Assets.zip`: game assets.
 - `/data/universe/`: world saves.
 - `/data/config.json`: server config (managed by Hytale).
-- `/data/.auth/`: downloader auth cache (OAuth tokens).
+- `/data/.auth/`: OAuth token storage for persistent authentication.
+  - `.oauth-tokens.json`: OAuth access/refresh tokens (30-day refresh token TTL).
 - `/data/.hytale-cli/`: fallback CLI location (backward compatibility, rarely used).
 - `/data/.version`: installed version metadata.
 - `/data/logs/`: server logs.
@@ -126,10 +149,12 @@ Based on Aikar's flags (widely used for Minecraft servers), adapted for Hytale.
   - Run all tests: `just test` (TypeScript + integration)
   - Lint: `just lint` (TypeScript + Dockerfile)
   - Healthcheck: run container and verify `HEALTHY`.
-  
+
 ### Development Workflow
 - Source code is in `src/` directory (TypeScript).
-- Run locally with Bun: `bun run src/setup.ts`
+- Run locally with Bun:
+  - `bun run src/entrypoint.ts` - main entry point
+  - `bun run src/healthcheck.ts` - health check script
 - Build binaries locally: `bun run build` (creates `dist/` directory).
 - Docker build uses multi-stage process to compile binaries.
 

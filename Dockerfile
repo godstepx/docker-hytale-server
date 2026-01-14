@@ -43,12 +43,12 @@ RUN mkdir -p dist && \
       BUN_TARGET="bun-linux-x64-baseline"; \
     fi && \
     echo "Building for $TARGETARCH using $BUN_TARGET" && \
-    bun build ./src/setup.ts --compile --target=$BUN_TARGET --outfile dist/setup && \
+    bun build ./src/entrypoint.ts --compile --target=$BUN_TARGET --outfile dist/entrypoint && \
     bun build ./src/healthcheck.ts --compile --target=$BUN_TARGET --outfile dist/healthcheck
 
 # Verify binaries were created
 RUN ls -lh dist/ && \
-    test -f dist/setup && \
+    test -f dist/entrypoint && \
     test -f dist/healthcheck
 
 # =============================================================================
@@ -106,11 +106,8 @@ RUN addgroup -g ${GID} hytale \
 WORKDIR /opt/hytale
 
 # Copy compiled binaries from builder
-COPY --from=builder --chmod=755 /build/dist/setup /opt/hytale/bin/setup
+COPY --from=builder --chmod=755 /build/dist/entrypoint /opt/hytale/bin/entrypoint
 COPY --from=builder --chmod=755 /build/dist/healthcheck /opt/hytale/bin/healthcheck
-
-# Copy shell wrapper entrypoint (execs Java directly to avoid Bun ARM64 crashes)
-COPY --chmod=755 src/entrypoint.sh /opt/hytale/bin/entrypoint
 
 # Copy pre-bundled Hytale CLI (eliminates runtime download)
 COPY --from=cli-downloader --chmod=755 /cli/ /opt/hytale/cli/
@@ -118,32 +115,6 @@ COPY --from=cli-downloader --chmod=755 /cli/ /opt/hytale/cli/
 # Create data directory with correct permissions
 RUN mkdir -p /data /data/logs /data/backups \
     && chown -R hytale:hytale /data /opt/hytale
-
-# Environment defaults
-ENV DATA_DIR=/data \
-    # Bundled CLI location (pre-downloaded at build time)
-    BUNDLED_CLI_DIR=/opt/hytale/cli \
-    # Download options
-    DOWNLOAD_MODE=auto \
-    HYTALE_CLI_URL="https://downloader.hytale.com/hytale-downloader.zip" \
-    LAUNCHER_PATH="" \
-    HYTALE_PATCHLINE=release \
-    FORCE_DOWNLOAD=false \
-    CHECK_UPDATES=false \
-    # Java options
-    JAVA_XMS=1G \
-    JAVA_XMX=4G \
-    # Server options
-    SERVER_PORT=5520 \
-    BIND_ADDRESS=0.0.0.0 \
-    AUTH_MODE=authenticated \
-    ENABLE_BACKUPS=false \
-    BACKUP_FREQUENCY=30 \
-    BACKUP_DIR=/data/backups \
-    DISABLE_SENTRY=false \
-    DRY_RUN=false \
-    CONTAINER_LOG_LEVEL=INFO \
-    TZ=UTC
 
 # Expose UDP port (QUIC)
 EXPOSE 5520/udp

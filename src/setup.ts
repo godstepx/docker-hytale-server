@@ -1,21 +1,22 @@
 #!/usr/bin/env bun
 /**
- * Hytale Server Setup
- * Setup script that:
- * 1. Downloads server files via official Hytale CLI
- * 2. Validates files exist
- * 3. Writes Java command for shell wrapper to exec
+ * Hytale Server Setup Module
  *
- * The shell wrapper (entrypoint-wrapper.sh) then execs Java directly.
- * This avoids Bun managing long-running subprocesses (which can crash on ARM64).
+ * Provides:
+ * - Server file download via official Hytale CLI
+ * - Java command argument building (including session tokens)
+ * - File validation
+ *
+ * This module is imported by entrypoint.ts for the main server flow.
  *
  * Note: Hytale manages its own config.json files.
  * See official docs: https://support.hytale.com/hc/en-us/articles/45326769420827
  */
 
-import { existsSync, mkdirSync, writeFileSync } from "fs";
-import { logInfo, logWarn, logBanner, die } from "./log-utils.ts";
+import { existsSync, mkdirSync } from "fs";
+import { logInfo, logWarn, die } from "./log-utils.ts";
 import { ensureServerFiles } from "./download.ts";
+import type { SessionTokens } from "./token-manager.ts";
 import {
   DATA_DIR,
   SERVER_DIR,
@@ -36,13 +37,22 @@ import {
   ENABLE_BACKUPS,
   BACKUP_DIR,
   BACKUP_FREQUENCY,
-  DRY_RUN,
+  BACKUP_MAX_COUNT,
+  TRANSPORT_TYPE,
+  BOOT_COMMANDS,
+  ADDITIONAL_MODS_DIR,
+  ADDITIONAL_PLUGINS_DIR,
+  SERVER_LOG_LEVEL,
+  OWNER_NAME,
+  HYTALE_SERVER_SESSION_TOKEN,
+  HYTALE_SERVER_IDENTITY_TOKEN,
+  HYTALE_OWNER_UUID,
 } from "./config.ts";
 
 /**
  * Download server files by calling the download module
  */
-async function downloadServer(): Promise<void> {
+export async function downloadServer(): Promise<void> {
   try {
     await ensureServerFiles();
   } catch (error) {
@@ -51,9 +61,10 @@ async function downloadServer(): Promise<void> {
 }
 
 /**
- * Build Java arguments
+ * Build Java arguments for server startup
+ * @param sessionTokens - Optional session tokens to pass to server
  */
-function buildJavaArgs(): string[] {
+export function buildJavaArgs(sessionTokens: SessionTokens | null): string[] {
   const args: string[] = [];
 
   // Memory settings
@@ -147,27 +158,75 @@ function buildJavaArgs(): string[] {
     args.push("--backup");
     args.push("--backup-dir", BACKUP_DIR);
     args.push("--backup-frequency", BACKUP_FREQUENCY);
-    logInfo(`Backups enabled: every ${BACKUP_FREQUENCY} minutes to ${BACKUP_DIR}`);
+    args.push("--backup-max-count", BACKUP_MAX_COUNT);
+    logInfo(`Backups enabled: every ${BACKUP_FREQUENCY} minutes to ${BACKUP_DIR} (max ${BACKUP_MAX_COUNT})`);
+  }
+
+  // Transport type (e.g., QUIC, TCP)
+  if (TRANSPORT_TYPE) {
+    args.push("--transport", TRANSPORT_TYPE);
+  }
+
+  // Boot commands (comma-separated, run on server start)
+  if (BOOT_COMMANDS) {
+    const commands = BOOT_COMMANDS.split(",").map((cmd) => cmd.trim()).filter((cmd) => cmd.length > 0);
+    for (const cmd of commands) {
+      args.push("--boot-command", cmd);
+    }
+    logInfo(`Boot commands configured: ${commands.length} command(s)`);
+  }
+
+  // Additional mods directory
+  if (ADDITIONAL_MODS_DIR) {
+    args.push("--mods", ADDITIONAL_MODS_DIR);
+    logInfo(`Additional mods directory: ${ADDITIONAL_MODS_DIR}`);
+  }
+
+  // Additional early plugins directory
+  if (ADDITIONAL_PLUGINS_DIR) {
+    args.push("--early-plugins", ADDITIONAL_PLUGINS_DIR);
+    logInfo(`Additional early plugins directory: ${ADDITIONAL_PLUGINS_DIR}`);
+  }
+
+  // Server log level (e.g., root=DEBUG)
+  if (SERVER_LOG_LEVEL) {
+    args.push("--log", SERVER_LOG_LEVEL);
+  }
+
+  // Owner name (display name for server owner)
+  if (OWNER_NAME) {
+    args.push("--owner-name", OWNER_NAME);
+  }
+
+  // ==========================================================================
+  // Session Tokens (for authenticated mode)
+  // Priority: Environment variables > OAuth-acquired tokens
+  // ==========================================================================
+  if (HYTALE_SERVER_SESSION_TOKEN) {
+    // Hosting providers can pass tokens via environment
+    args.push("--session-token", HYTALE_SERVER_SESSION_TOKEN);
+    if (HYTALE_SERVER_IDENTITY_TOKEN) {
+      args.push("--identity-token", HYTALE_SERVER_IDENTITY_TOKEN);
+    }
+    if (HYTALE_OWNER_UUID) {
+      args.push("--owner-uuid", HYTALE_OWNER_UUID);
+    }
+    logInfo("Using session tokens from environment variables");
+  } else if (sessionTokens) {
+    // Tokens acquired via OAuth device flow
+    args.push("--session-token", sessionTokens.sessionToken);
+    args.push("--identity-token", sessionTokens.identityToken);
+    args.push("--owner-uuid", sessionTokens.profileUuid);
+    logInfo("Using session tokens from OAuth authentication");
   }
 
   return args;
 }
 
 /**
- * Prepare server startup
- * Writes Java command to file for shell wrapper to exec
+ * Validate server files exist
  */
-async function prepareServer(): Promise<void> {
-  logInfo("Preparing Hytale server...");
-
-  const javaArgs = buildJavaArgs();
-
-  if (DRY_RUN) {
-    logInfo(`[DRY_RUN] Java command: java ${javaArgs.join(" ")}`);
-    logInfo("[DRY_RUN] Setup complete, exiting.");
-    process.exit(0);
-  }
-
+export function validateServerFiles(): void {
   if (!existsSync(SERVER_JAR)) {
     die(`Server JAR not found: ${SERVER_JAR}`);
   }
@@ -175,41 +234,13 @@ async function prepareServer(): Promise<void> {
   if (!existsSync(ASSETS_FILE)) {
     die(`Assets file not found: ${ASSETS_FILE}`);
   }
-
-  mkdirSync(LOG_DIR, { recursive: true });
-
-  // Write Java command to file for shell wrapper to exec
-  // This avoids Bun managing a long-running subprocess (which can crash on ARM64)
-  const javaCommand = ["exec", "java", ...javaArgs];
-  const escapedArgs = javaCommand.map((arg) => `"${arg.replace(/"/g, '\\"')}"`).join(" ");
-  const javaCmdFile = "/tmp/java-cmd.sh";
-
-  writeFileSync(javaCmdFile, escapedArgs + "\n", { mode: 0o755 });
-  logInfo(`Java command: java ${javaArgs.join(" ")}`);
-  logInfo("Setup complete, handing off to Java...");
 }
 
 /**
- * Main
+ * Setup directories
  */
-async function main(): Promise<void> {
-  logBanner();
-
-  // Setup directories
+export function setupDirectories(): void {
   mkdirSync(DATA_DIR, { recursive: true });
   mkdirSync(SERVER_DIR, { recursive: true });
   mkdirSync(LOG_DIR, { recursive: true });
-
-  // Phase 1: Download server files (via Hytale CLI)
-  await downloadServer();
-
-  // Phase 2: Prepare server (write java command)
-  await prepareServer();
-}
-
-// Run main if executed directly
-if (import.meta.main) {
-  main().catch((error) => {
-    die(`Setup failed: ${error}`);
-  });
 }

@@ -155,9 +155,17 @@ The image handles `SIGTERM` to save world data before exiting.
 | `ENABLE_BACKUPS` | `false` | Enable automatic backups |
 | `BACKUP_FREQUENCY` | `30` | Backup interval (minutes) |
 | `BACKUP_DIR` | `/data/backups` | Backup directory |
+| `BACKUP_MAX_COUNT` | `5` | Maximum number of backups to keep |
 | `DISABLE_SENTRY` | `false` | Disable crash reporting |
 | `ACCEPT_EARLY_PLUGINS` | `false` | Enable early plugins (unsupported, may cause stability issues) |
 | `ALLOW_OP` | `false` | Allow operator commands |
+| **Advanced Options** |||
+| `TRANSPORT_TYPE` | - | Transport protocol (e.g., `QUIC`, `TCP`) |
+| `BOOT_COMMANDS` | - | Commands to run on boot (comma-separated) |
+| `ADDITIONAL_MODS_DIR` | - | Additional mods directory path |
+| `ADDITIONAL_PLUGINS_DIR` | - | Additional early plugins directory path |
+| `SERVER_LOG_LEVEL` | - | Server log level (e.g., `root=DEBUG`) |
+| `OWNER_NAME` | - | Display name for server owner |
 | **Logging & Debug** |||
 | `CONTAINER_LOG_LEVEL` | `INFO` | Container log level: `DEBUG`, `INFO`, `WARN`, `ERROR` |
 | `DRY_RUN` | `false` | Simulate startup without actually running the server |
@@ -186,7 +194,24 @@ Set `ALLOW_OP=true` to enable operator commands on the server.
 **Early Plugins (Unsupported):**
 Set `ACCEPT_EARLY_PLUGINS=true` to acknowledge loading early plugins. This is unsupported and may cause stability issues.
 
-### Token Passthrough (GSP/Advanced)
+### Authentication & Token Management
+
+The container automatically manages OAuth tokens for persistent authentication:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AUTO_AUTH_ON_START` | `true` | Start device auth flow if no tokens available |
+| `OAUTH_REFRESH_CHECK_INTERVAL` | `86400000` | Background OAuth refresh interval in ms (24h) |
+| `OAUTH_REFRESH_THRESHOLD_DAYS` | `7` | Refresh OAuth tokens when this many days left |
+| `LOG_RETENTION_DAYS` | `7` | Delete server logs older than this (0 = disable) |
+
+**How it works:**
+1. On first start, you'll see a device auth URL - visit it to authenticate
+2. Tokens are stored in `/data/.auth/` and persist across restarts
+3. Background refresh keeps tokens alive indefinitely (even 30+ day runs)
+4. The Hytale server handles game session refresh internally
+
+### Token Passthrough (GSP/Hosting Providers)
 
 Skip the interactive auth flow by passing tokens directly:
 
@@ -194,14 +219,16 @@ Skip the interactive auth flow by passing tokens directly:
 |----------|-------------|
 | `HYTALE_SERVER_SESSION_TOKEN` | Session token (JWT) |
 | `HYTALE_SERVER_IDENTITY_TOKEN` | Identity token (JWT) |
+| `HYTALE_OWNER_UUID` | Profile UUID for session |
 
 ```yaml
 environment:
   HYTALE_SERVER_SESSION_TOKEN: "eyJhbGciOiJFZERTQSIs..."
   HYTALE_SERVER_IDENTITY_TOKEN: "eyJhbGciOiJFZERTQSIs..."
+  HYTALE_OWNER_UUID: "123e4567-e89b-12d3-a456-426614174000"
 ```
 
-For token acquisition, see the Official Hytail Documentation [Server Provider Authentication Guide](https://support.hytale.com/hc/en-us/articles/45328341414043-Server-Provider-Authentication-Guide).
+For token acquisition, see the Official Hytale Documentation [Server Provider Authentication Guide](https://support.hytale.com/hc/en-us/articles/45328341414043-Server-Provider-Authentication-Guide).
 
 ## Volumes
 
@@ -287,8 +314,8 @@ The server scripts are written in TypeScript (in `src/`) and compiled to standal
 bun install
 
 # Run scripts directly with Bun (for testing)
-bun run src/setup.ts         # Setup script (includes download)
-bun run src/healthcheck.ts   # Health check script
+bun run src/entrypoint.ts      # Main entrypoint (download + auth + start)
+bun run src/healthcheck.ts     # Health check script
 
 # Build binaries locally
 bun run build
