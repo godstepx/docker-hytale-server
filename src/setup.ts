@@ -26,6 +26,7 @@ import {
   JAVA_XMS,
   JAVA_XMX,
   JAVA_OPTS,
+  ENABLE_AOT_CACHE,
   BIND_ADDRESS,
   SERVER_PORT,
   AUTH_MODE,
@@ -58,13 +59,7 @@ function buildJavaArgs(): string[] {
   // Memory settings
   args.push(`-Xms${JAVA_XMS}`, `-Xmx${JAVA_XMX}`);
 
-  // ==========================================================================
-  // AOT Cache Support (Java 25+)
-  // The Hytale server can generate an AOT cache file (HytaleServer.aot) which
-  // pre-compiles frequently used code paths for faster startup times.
-  // See: https://openjdk.org/jeps/483
-  // ==========================================================================
-  if (existsSync(AOT_CACHE)) {
+  if (ENABLE_AOT_CACHE && existsSync(AOT_CACHE)) {
     logInfo("Using AOT cache for faster startup");
     args.push(`-XX:AOTCache=${AOT_CACHE}`);
   }

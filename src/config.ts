@@ -73,6 +73,7 @@ export const SKIP_CLI_UPDATE_CHECK = getEnvBool("SKIP_CLI_UPDATE_CHECK", false);
 export const JAVA_XMS = getEnv("JAVA_XMS", "1G");
 export const JAVA_XMX = getEnv("JAVA_XMX", "4G");
 export const JAVA_OPTS = getEnv("JAVA_OPTS", "");
+export const ENABLE_AOT_CACHE = getEnvBool("ENABLE_AOT_CACHE", true);
 
 // =============================================================================
 // Server Configuration

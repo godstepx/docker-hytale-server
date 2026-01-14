@@ -329,22 +329,16 @@ async function downloadServerFiles(): Promise<void> {
       logDebug(`Could not list ${DATA_DIR}: ${e}`);
     }
 
-    // Rename Server/ to server/ (our expected location)
-    // Note: On case-insensitive filesystems, Server/ and server/ are the same
     const extractedServerDir = resolvePath(DATA_DIR, "Server");
     const serverJar = resolvePath(SERVER_DIR, "HytaleServer.jar");
 
-    if (existsSync(extractedServerDir) && extractedServerDir !== SERVER_DIR) {
-      logDebug(`Renaming ${extractedServerDir} to ${SERVER_DIR}`);
-      // Remove old server dir if it exists
-      if (existsSync(SERVER_DIR)) {
-        rmSync(SERVER_DIR, { recursive: true, force: true });
-      }
-      // Rename Server -> server
-      renameSync(extractedServerDir, SERVER_DIR);
-    } else if (existsSync(serverJar)) {
-      // Files extracted directly to server/ (case-insensitive filesystem)
+    if (existsSync(serverJar)) {
+      // Files already in correct location (case-insensitive filesystem extracted to server/)
       logDebug("Server files already in correct location");
+    } else if (existsSync(extractedServerDir)) {
+      // Case-sensitive filesystem: need to rename Server/ to server/
+      logDebug(`Renaming ${extractedServerDir} to ${SERVER_DIR}`);
+      renameSync(extractedServerDir, SERVER_DIR);
     } else {
       die("Extraction failed: Server directory not found after unzip");
     }

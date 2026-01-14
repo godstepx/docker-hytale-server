@@ -147,6 +147,7 @@ The image handles `SIGTERM` to save world data before exiting.
 | `JAVA_XMS` | `1G` | Initial heap size |
 | `JAVA_XMX` | `4G` | Maximum heap size |
 | `JAVA_OPTS` | - | Additional JVM options (space-separated) |
+| `ENABLE_AOT_CACHE` | `true` | Use AOT cache for faster startup (Java 25+) |
 | **Server Options** |||
 | `SERVER_PORT` | `5520` | UDP port (QUIC) |
 | `BIND_ADDRESS` | `0.0.0.0` | Address to bind the server to |
@@ -200,7 +201,7 @@ environment:
   HYTALE_SERVER_IDENTITY_TOKEN: "eyJhbGciOiJFZERTQSIs..."
 ```
 
-For token acquisition, see the [Server Provider Authentication Guide](https://support.hytale.com/hc/en-us/articles/45326769436187).
+For token acquisition, see the Official Hytail Documentation [Server Provider Authentication Guide](https://support.hytale.com/hc/en-us/articles/45328341414043-Server-Provider-Authentication-Guide).
 
 ## Volumes
 

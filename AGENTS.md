@@ -93,7 +93,7 @@ Based on Aikar's flags (widely used for Minecraft servers), adapted for Hytale.
 - Download: `DOWNLOAD_MODE`, `HYTALE_CLI_URL`, `LAUNCHER_PATH`,
   `HYTALE_PATCHLINE`, `FORCE_DOWNLOAD`, `CHECK_UPDATES`.
 - Paths: `BUNDLED_CLI_DIR` (default: `/opt/hytale/cli`), `DATA_DIR` (default: `/data`).
-- Java: `JAVA_XMS`, `JAVA_XMX`, `JAVA_OPTS`.
+- Java: `JAVA_XMS`, `JAVA_XMX`, `JAVA_OPTS`, `ENABLE_AOT_CACHE`.
 - Server: `SERVER_PORT`, `BIND_ADDRESS`, `AUTH_MODE`, `DISABLE_SENTRY`,
   `ENABLE_BACKUPS`, `BACKUP_FREQUENCY`, `BACKUP_DIR`, `ACCEPT_EARLY_PLUGINS`, `ALLOW_OP`.
 - Logging: `CONTAINER_LOG_LEVEL`.
