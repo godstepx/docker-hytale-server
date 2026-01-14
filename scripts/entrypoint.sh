@@ -459,49 +459,82 @@ start_server() {
     local SERVER_OUTPUT_LOG="${LOG_DIR}/server-output.log"
     : > "$SERVER_OUTPUT_LOG"  # Truncate/create the log file
     
-    # Start server with DUAL input support:
-    # 1. Direct stdin (for Portainer Attach / docker attach)
-    # 2. File-based pipe (for programmatic input via echo "cmd" > /data/server.input)
-    #
-    # We achieve this by:
-    # - Starting a background process that forwards pipe input to a merged FIFO
-    # - Starting Java with stdin from both real stdin AND the merged pipe
-    
-    local MERGED_PIPE="${DATA_DIR}/.merged-input"
-    rm -f "$MERGED_PIPE"
-    mkfifo "$MERGED_PIPE"
-    chmod 660 "$MERGED_PIPE"
-    
-    # Background: forward file-based input to merged pipe
-    (
-        # Keep the merged pipe open (prevents EOF)
-        exec 3>"$MERGED_PIPE"
-        # Forward from server.input to merged pipe
-        while true; do
-            if read -r line < "$INPUT_PIPE" 2>/dev/null; then
-                echo "$line" >&3
-            fi
-        done
-    ) &
-    
-    # Background: forward stdin to merged pipe (if stdin is a terminal)
-    if [[ -t 0 ]] || [[ "${FORCE_STDIN:-false}" == "true" ]]; then
+    # Start server with DUAL input support
+    # We prioritize true TTY interaction (screen) if available, falling back to pipes if not.
+
+    if [[ -t 0 ]]; then
+        log_info "Interactive terminal detected (TTY). Using screen manager."
+        
+        if ! command -v screen >/dev/null; then
+             log_warn "Screen not found! Falling back to pipe mode."
+             # Logic continues to pipe mode below...
+        else
+             # Use Screen for true interactive console
+             
+             # Background listener for input pipe injection
+             (
+                 # Keep pipe open
+                 exec 3>"$INPUT_PIPE"
+                 while read -r line < "$INPUT_PIPE"; do
+                     # Inject to screen session if it exists
+                     if screen -list | grep -q "hytale"; then
+                         log_debug "Injecting command: $line"
+                         screen -S hytale -p 0 -X stuff "$line$(printf \\r)"
+                     fi
+                 done
+             ) &
+             
+             cd "$DATA_DIR"
+             
+             # Start server in screen session
+             # -D -m: Start in detached mode but don't fork (foreground)
+             # bash -c: Run the java command pipeline
+             screen -D -m -S hytale bash -c "java $java_args 2>&1 | tee -a '$SERVER_OUTPUT_LOG'" &
+             SERVER_PID=$!
+             
+             # For cleanup logic, screen process is the leader
+             SERVER_PGID=$SERVER_PID
+             
+             # Wait a moment for java to start inside screen
+             sleep 2
+        fi
+    fi
+
+    # Fallback to Pipe Mode if no TTY or screen failed/skipped
+    if [[ -z "${SERVER_PID:-}" ]]; then
+        log_info "Non-interactive mode (using named pipes)."
+        
+        local MERGED_PIPE="${DATA_DIR}/.merged-input"
+        rm -f "$MERGED_PIPE"
+        mkfifo "$MERGED_PIPE"
+        chmod 660 "$MERGED_PIPE"
+        
+        # Background: forward file-based input to merged pipe
         (
             exec 3>"$MERGED_PIPE"
-            while IFS= read -r line; do
-                echo "$line" >&3
+            while true; do
+                if read -r line < "$INPUT_PIPE" 2>/dev/null; then
+                    echo "$line" >&3
+                fi
             done
         ) &
-        log_info "Interactive input enabled (Portainer Attach supported)"
-    else
-        log_info "Non-interactive mode (use $INPUT_PIPE for commands)"
+        
+        # Background: forward stdin to merged pipe
+        if [[ -t 0 ]] || [[ "${FORCE_STDIN:-false}" == "true" ]]; then
+            (
+                exec 3>"$MERGED_PIPE"
+                while IFS= read -r line; do
+                    echo "$line" >&3
+                done
+            ) &
+        fi
+        
+        cd "$DATA_DIR"
+        
+        # Start Java with merged input
+        setsid bash -c "cat '$MERGED_PIPE' | java $java_args 2>&1 | tee -a '$SERVER_OUTPUT_LOG'" &
+        SERVER_PID=$!
     fi
-    
-    cd "$DATA_DIR"
-    
-    # Start Java with merged input
-    setsid bash -c "cat '$MERGED_PIPE' | java $java_args 2>&1 | tee -a '$SERVER_OUTPUT_LOG'" &
-    SERVER_PID=$!
     
     # Give the setsid'd process time to spawn children
     sleep 2

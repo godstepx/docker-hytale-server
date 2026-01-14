@@ -30,6 +30,7 @@ RUN apk add --no-cache \
     gcompat \
     libgcc \
     su-exec \
+    screen \
     && rm -rf /var/cache/apk/*
 
 # =============================================================================
