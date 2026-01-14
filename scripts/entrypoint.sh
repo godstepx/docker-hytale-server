@@ -483,7 +483,6 @@ start_server() {
             fi
         done
     ) &
-    local PIPE_FORWARDER_PID=$!
     
     # Background: forward stdin to merged pipe (if stdin is a terminal)
     if [[ -t 0 ]] || [[ "${FORCE_STDIN:-false}" == "true" ]]; then
@@ -493,7 +492,6 @@ start_server() {
                 echo "$line" >&3
             done
         ) &
-        local STDIN_FORWARDER_PID=$!
         log_info "Interactive input enabled (Portainer Attach supported)"
     else
         log_info "Non-interactive mode (use $INPUT_PIPE for commands)"
