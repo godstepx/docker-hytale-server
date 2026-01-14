@@ -326,9 +326,9 @@ start_server() {
                 
                 # Set persistence after successful auth (only once)
                 if [[ "$persistence_set" == "false" ]] && grep -Eq "Authentication successful|auth\.login\.device\.success" "$latest_log" 2>/dev/null; then
-                    log_info "Auth successful! Setting persistence to Plaintext..."
+                    log_info "Auth successful! Setting persistence to File..."
                     sleep 1
-                    echo "/auth persistence Plaintext" > "$INPUT_PIPE"
+                    echo "/auth persistence File" > "$INPUT_PIPE"
                     persistence_set=true
                     log_info "Credentials will now persist across restarts."
                 fi
@@ -339,7 +339,7 @@ start_server() {
                     now=$(date +%s)
                     if (( now - auth_trigger_time >= 10 )); then
                         log_info "Fallback: Attempting to enable credential persistence..."
-                        echo "/auth persistence Plaintext" > "$INPUT_PIPE"
+                        echo "/auth persistence File" > "$INPUT_PIPE"
                         persistence_set=true
                     fi
                 fi
