@@ -448,23 +448,61 @@ start_server() {
     # Create input pipe if it doesn't exist
     if [[ ! -p "$INPUT_PIPE" ]]; then
         mkfifo "$INPUT_PIPE"
-        chown hytale:hytale "$INPUT_PIPE"
+        chown hytale:hytale "$INPUT_PIPE" 2>/dev/null || true
         chmod 660 "$INPUT_PIPE"
     fi
 
-    # Start server in background with input from pipe
+    # Start server in background
     cd "$DATA_DIR"
     
     # Create a log file that the monitor can read
     local SERVER_OUTPUT_LOG="${LOG_DIR}/server-output.log"
     : > "$SERVER_OUTPUT_LOG"  # Truncate/create the log file
     
-    # Start server with proper process tracking
+    # Start server with DUAL input support:
+    # 1. Direct stdin (for Portainer Attach / docker attach)
+    # 2. File-based pipe (for programmatic input via echo "cmd" > /data/server.input)
+    #
+    # We achieve this by:
+    # - Starting a background process that forwards pipe input to a merged FIFO
+    # - Starting Java with stdin from both real stdin AND the merged pipe
+    
+    local MERGED_PIPE="${DATA_DIR}/.merged-input"
+    rm -f "$MERGED_PIPE"
+    mkfifo "$MERGED_PIPE"
+    chmod 660 "$MERGED_PIPE"
+    
+    # Background: forward file-based input to merged pipe
+    (
+        # Keep the merged pipe open (prevents EOF)
+        exec 3>"$MERGED_PIPE"
+        # Forward from server.input to merged pipe
+        while true; do
+            if read -r line < "$INPUT_PIPE" 2>/dev/null; then
+                echo "$line" >&3
+            fi
+        done
+    ) &
+    local PIPE_FORWARDER_PID=$!
+    
+    # Background: forward stdin to merged pipe (if stdin is a terminal)
+    if [[ -t 0 ]] || [[ "${FORCE_STDIN:-false}" == "true" ]]; then
+        (
+            exec 3>"$MERGED_PIPE"
+            while IFS= read -r line; do
+                echo "$line" >&3
+            done
+        ) &
+        local STDIN_FORWARDER_PID=$!
+        log_info "Interactive input enabled (Portainer Attach supported)"
+    else
+        log_info "Non-interactive mode (use $INPUT_PIPE for commands)"
+    fi
+    
     cd "$DATA_DIR"
     
-    # Start the pipeline in a way we can kill all processes
-    # Use setsid to create a new session and process group
-    setsid bash -c "tail -f '$INPUT_PIPE' | java $java_args 2>&1 | tee -a '$SERVER_OUTPUT_LOG'" &
+    # Start Java with merged input
+    setsid bash -c "cat '$MERGED_PIPE' | java $java_args 2>&1 | tee -a '$SERVER_OUTPUT_LOG'" &
     SERVER_PID=$!
     
     # Give the setsid'd process time to spawn children
