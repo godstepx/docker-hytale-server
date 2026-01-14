@@ -109,9 +109,23 @@ validate_oauth_tokens() {
     
     log_info "Validating stored OAuth tokens..."
     
-    local stored_tokens access_token
+    local stored_tokens access_token expires_at
     stored_tokens=$(get_oauth_tokens)
     access_token=$(echo "$stored_tokens" | jq -r '.access_token // empty')
+    expires_at=$(echo "$stored_tokens" | jq -r '.expires_at // empty')
+    
+    # Check if access token is locally expired
+    if [[ -n "$expires_at" ]]; then
+        local expires_epoch now_epoch
+        expires_epoch=$(date -d "$expires_at" +%s 2>/dev/null || echo 0)
+        now_epoch=$(date +%s)
+        
+        # Buffer of 60 seconds
+        if (( expires_epoch <= now_epoch + 60 )); then
+            log_info "Access token expired (local check), refreshing..."
+            access_token=$(refresh_oauth_tokens 2>/dev/null) || return 1
+        fi
+    fi
     
     # If no access token, try to refresh first
     if [[ -z "$access_token" ]]; then
@@ -125,14 +139,30 @@ validate_oauth_tokens() {
     http_code=$(echo "$response" | tail -n1)
     response=$(echo "$response" | sed '$d')
     
+    # If rejected, try refreshing one last time (in case revoked or just expired on server)
+    if [[ "$http_code" == "401" || "$http_code" == "403" ]]; then
+        log_warn "OAuth tokens rejected (HTTP $http_code) during validation. Attempting refresh..."
+        if access_token=$(refresh_oauth_tokens 2>/dev/null); then
+             # Retry validation with new token
+             response=$(curl -sS -w "\n%{http_code}" -X GET "$PROFILES_URL" \
+                -H "Authorization: Bearer ${access_token}" 2>&1)
+             http_code=$(echo "$response" | tail -n1)
+             response=$(echo "$response" | sed '$d')
+             
+             if [[ "$http_code" == "200" ]]; then
+                 log_info "OAuth tokens validated successfully after refresh"
+                 return 0
+             fi
+        fi
+        
+        log_warn "OAuth tokens still rejected after refresh/retry (HTTP $http_code)"
+        return 1
+    fi
+    
     case "$http_code" in
         200)
             log_info "OAuth tokens are valid"
             return 0
-            ;;
-        401|403)
-            log_warn "OAuth tokens rejected (HTTP $http_code) - tokens may be expired or revoked"
-            return 1
             ;;
         *)
             log_warn "Unexpected response validating tokens (HTTP $http_code)"
