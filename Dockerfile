@@ -43,8 +43,8 @@ RUN mkdir -p dist && \
       BUN_TARGET="bun-linux-x64-baseline"; \
     fi && \
     echo "Building for $TARGETARCH using $BUN_TARGET" && \
-    bun build ./src/entrypoint.ts --compile --target=$BUN_TARGET --outfile dist/entrypoint && \
-    bun build ./src/healthcheck.ts --compile --target=$BUN_TARGET --outfile dist/healthcheck
+    bun build ./src/entrypoint.ts --compile --target="$BUN_TARGET" --outfile dist/entrypoint && \
+    bun build ./src/healthcheck.ts --compile --target="$BUN_TARGET" --outfile dist/healthcheck
 
 # Verify binaries were created
 RUN ls -lh dist/ && \
