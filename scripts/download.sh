@@ -169,20 +169,49 @@ check_existing_files() {
             return 1
         fi
         
+        # Check for updates
         if [[ "${CHECK_UPDATES:-true}" == "true" ]]; then
             local cli_bin
             cli_bin=$(detect_cli_binary)
             if [[ -n "$cli_bin" ]]; then
                 log_info "Checking for updates..."
-                local current_version
-                # Use timeout to prevent hanging on network issues
-                current_version=$(timeout 10s run_cli_command "$cli_bin" -print-version 2>/dev/null || echo "unknown")
-                if [[ "$current_version" != "unknown" ]]; then
-                    log_info "Latest version available: $current_version"
-                else
+                
+                # Get latest version from server
+                local latest_version
+                latest_version=$(timeout 10s run_cli_command "$cli_bin" -print-version 2>/dev/null || echo "unknown")
+                
+                if [[ "$latest_version" == "unknown" ]]; then
                     log_warn "Could not check for updates (timeout or network issue)"
+                    return 0
                 fi
-                # TODO: Compare with installed version
+                
+                # Get installed version
+                local installed_version
+                installed_version=$(get_installed_version)
+                
+                log_debug "Installed: $installed_version, Latest: $latest_version"
+                
+                # Compare versions
+                if [[ "$installed_version" != "$latest_version" && "$installed_version" != "unknown" ]]; then
+                    log_info "Update available: $installed_version -> $latest_version"
+                    
+                    # Auto-update if enabled
+                    if [[ "${AUTO_UPDATE:-false}" == "true" ]]; then
+                        log_info "AUTO_UPDATE enabled, downloading new version..."
+                        
+                        # Backup old version info
+                        if [[ -f "$VERSION_FILE" ]]; then
+                            cp "$VERSION_FILE" "${VERSION_FILE}.bak"
+                        fi
+                        
+                        # Return 1 to trigger re-download
+                        return 1
+                    else
+                        log_info "Set AUTO_UPDATE=true to automatically update"
+                    fi
+                else
+                    log_debug "Server is up to date ($installed_version)"
+                fi
             fi
         fi
         
