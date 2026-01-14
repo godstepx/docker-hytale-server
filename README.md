@@ -21,6 +21,8 @@ services:
       - "5520:5520/udp"
     volumes:
       - ./data:/data
+      # Linux only: avoid "Failed to get hardware UUID" at startup
+      - /etc/machine-id:/etc/machine-id:ro
     environment:
       JAVA_XMX: "4G"
       JAVA_XMS: "1G"
@@ -99,7 +101,7 @@ docker run -d \
   -e LAUNCHER_PATH=/launcher \
   -v hytale-data:/data \
   -p 5520:5520/udp \
-  ghcr.io/godstepx/hytale-server:latest
+  ghcr.io/godstepx/docker-hytale-server:latest
 ```
 
 ### Option B: Direct Docker Run
@@ -108,22 +110,15 @@ docker run -d \
   --name hytale-server \
   -v hytale-data:/data \
   -p 5520:5520/udp \
-  ghcr.io/godstepx/hytale-server:latest
+  ghcr.io/godstepx/docker-hytale-server:latest
 ```
 
 ---
 
 ## Advanced Features
 
-### Command Piping
-Send console commands to the running server without attaching:
-```bash
-# Example: Send /help or /whitelist
-echo "/help" > /path/to/your/volume/server.input
-```
-
 ### Automatic Authentication
-The server intelligently detects if a session is active. It will only export `SERVER_AUTH.url` if a new login is required. Sessions are persisted in the `/data` volume.
+The server detects existing tokens and only starts device auth when needed. Sessions are persisted in the `/data` volume.
 
 ### Graceful Shutdown
 The image handles `SIGTERM` to save world data before exiting.
@@ -141,6 +136,7 @@ The image handles `SIGTERM` to save world data before exiting.
 | `HYTALE_PATCHLINE` | `release` | `release` or `pre-release` |
 | `FORCE_DOWNLOAD` | `false` | Force re-download even if files exist |
 | `CHECK_UPDATES` | `true` | Check for updates on startup (prints latest version) |
+| `SKIP_CLI_UPDATE_CHECK` | `false` | Skip CLI self-update/version check |
 | `DOWNLOAD_MAX_RETRIES` | `5` | Max retry attempts for CLI download |
 | `DOWNLOAD_INITIAL_BACKOFF` | `2` | Initial backoff seconds between retries |
 | **Java Options** |||
@@ -200,7 +196,7 @@ All flags are documented in the official Hytale server. To see the complete list
 ```bash
 # Note: Server JAR is at /data/server/HytaleServer.jar in a running container
 # To see help, you need server files downloaded first
-docker run --rm -v hytale-data:/data ghcr.io/godstepx/hytale-server:latest java -jar /data/server/HytaleServer.jar --help
+docker run --rm -v hytale-data:/data ghcr.io/godstepx/docker-hytale-server:latest java -jar /data/server/HytaleServer.jar --help
 ```
 
 **Authentication Modes:**
@@ -302,12 +298,13 @@ For token acquisition, see the Official Hytale Documentation [Server Provider Au
 ## Volumes
 
 - `/data` - Everything persistent (Worlds, Configs, Logs, Auth)
-  - `/data/server.input` - Named pipe for console commands
   - `/data/universe/` - World saves
   - `/data/config.json` - Server configuration (auto-generated from env vars or managed by Hytale)
   - `/data/whitelist.json` - Whitelist configuration (auto-generated from env vars)
   - `/data/.auth/` - CLI auth cache (OAuth tokens)
+  - `/data/logs/` - Server logs
   - `/data/backups/` - Automatic backups (if enabled)
+  - `/data/.version` - Installed version metadata
 
 ### Bundled CLI
 
@@ -317,7 +314,7 @@ The Hytale Downloader CLI is **pre-bundled** in the image at `/opt/hytale/cli/` 
 
 ### Check for Updates
 ```bash
-docker run --rm -v hytale-data:/data -e FORCE_DOWNLOAD=true ghcr.io/godstepx/hytale-server:latest
+docker run --rm -v hytale-data:/data -e FORCE_DOWNLOAD=true ghcr.io/godstepx/docker-hytale-server:latest
 ```
 
 ### View Installed Version
@@ -345,7 +342,7 @@ just build              # Build the Docker image with pre-bundled CLI
 just build-multi        # Build multi-platform image and push to GHCR
 just run                # Run container in dry-run mode for testing
 just run-interactive    # Start interactive shell in container
-just test               # Run all tests (TypeScript + integration)
+just test               # Run TypeScript type checking (alias for lint-ts)
 just lint               # Run TypeScript type checking and hadolint
 just lint-ts            # Run TypeScript type checking only
 just format             # Format TypeScript code with Prettier
@@ -365,8 +362,11 @@ just build
 # Run TypeScript type checking
 just lint-ts
 
-# Run tests
+# Run type checking
 just test
+
+# Optional: Docker smoke test (pull/build image first)
+./tests/test-options.sh
 
 # Test the container locally
 just run
@@ -397,7 +397,7 @@ bun run format
 bun run lint
 ```
 
-**Note:** The Docker build uses a multi-stage process that compiles TypeScript to standalone binaries, eliminating the need for bash, curl, jq, and unzip in the production image!
+**Note:** The Docker build uses a multi-stage process that compiles TypeScript to standalone binaries, eliminating the need for bash, curl, and jq in the production image (unzip is still included).
 
 ### Environment Variables
 

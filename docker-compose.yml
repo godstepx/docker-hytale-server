@@ -10,17 +10,11 @@ services:
       - "5520:5520/udp"
     volumes:
       - hytale-data:/data
-      # Export the auth link to the local directory for visibility
-      - ./AUTH_LINK.url:/data/AUTH_LINK.url
-      - ./SERVER_AUTH.url:/data/SERVER_AUTH.url
+      # Linux only: avoid "Failed to get hardware UUID" at startup
+      - /etc/machine-id:/etc/machine-id:ro
     environment:
       - JAVA_XMS=1G
       - JAVA_XMX=4G
-      - HOME=/data
-      # For first-time setup via CLI, you may need to run interactively:
-      # docker-compose run hytale
-      - DOWNLOAD_MODE=auto
-      - CHECK_UPDATES=false
 
 volumes:
   hytale-data:
