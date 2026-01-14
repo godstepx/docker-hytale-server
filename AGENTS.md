@@ -40,6 +40,7 @@ the key project concepts and default guidelines. Update as needed.
 - `src/config-writer.ts`: config.json and whitelist.json generation from env vars. Imported by entrypoint.
 - `src/token-manager.ts`: OAuth2 device flow, token refresh, session creation. Imported by entrypoint (not a standalone binary).
 - `src/download.ts`: download/copy server files + version tracking - imported by entrypoint.
+- `src/mod-installer.ts`: CurseForge mod installer (auto-install mode) - imported by entrypoint.
 - `src/config.ts`: centralized configuration with all env var defaults.
 - `src/healthcheck.ts`: health checks for Docker - compiled to binary.
 - `src/log-utils.ts`: logging module (imported by other TypeScript modules).
@@ -120,7 +121,9 @@ Based on Aikar's flags (widely used for Minecraft servers), adapted for Hytale.
   `DEFAULT_GAME_MODE`, `DISPLAY_TMP_TAGS_IN_STRINGS`, `PLAYER_STORAGE_TYPE`.
 - Whitelist: `WHITELIST_ENABLED`, `WHITELIST_LIST` (comma-separated), `WHITELIST_JSON`.
 - Advanced: `TRANSPORT_TYPE`, `BOOT_COMMANDS`, `ADDITIONAL_MODS_DIR`, `ADDITIONAL_PLUGINS_DIR`,
-  `SERVER_LOG_LEVEL`, `OWNER_NAME`.
+  `SERVER_LOG_LEVEL`, `HYTALE_OWNER_NAME`.
+- Mods (CurseForge): `MOD_INSTALL_MODE`, `CURSEFORGE_MODS_DIR`, `CURSEFORGE_MOD_LIST`,
+  `CURSEFORGE_API_KEY`, `CURSEFORGE_GAME_VERSION`.
 - Auth tokens (for hosting providers): `HYTALE_SERVER_SESSION_TOKEN`, `HYTALE_SERVER_IDENTITY_TOKEN`, `HYTALE_OWNER_UUID`.
 - Auth behavior: `AUTO_AUTH_ON_START` (default: true), `OAUTH_REFRESH_CHECK_INTERVAL` (default: 24h), `OAUTH_REFRESH_THRESHOLD_DAYS` (default: 7).
 - Logging: `CONTAINER_LOG_LEVEL`, `LOG_RETENTION_DAYS` (default: 7, deletes old server logs).
@@ -138,10 +141,13 @@ Based on Aikar's flags (widely used for Minecraft servers), adapted for Hytale.
 - `/data/universe/`: world saves.
 - `/data/config.json`: server config (auto-generated from env vars or managed by Hytale).
 - `/data/whitelist.json`: whitelist config (auto-generated from env vars).
+- `/data/curseforge-mods/`: CurseForge mods directory (auto-installed mods).
+- `/data/mods/`: default mods directory (user-managed).
 - `/data/.auth/`: OAuth token storage for persistent authentication.
   - `.oauth-tokens.json`: OAuth access/refresh tokens (30-day refresh token TTL).
 - `/data/.hytale-cli/`: fallback CLI location (backward compatibility, rarely used).
 - `/data/.version`: installed version metadata.
+- `/data/.mods-cache.json`: cached mod metadata for CurseForge installs.
 - `/data/logs/`: server logs.
 - `/data/backups/`: automatic backups (if enabled).
 

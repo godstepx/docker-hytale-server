@@ -181,7 +181,13 @@ The image handles `SIGTERM` to save world data before exiting.
 | `ADDITIONAL_MODS_DIR` | - | Additional mods directory path |
 | `ADDITIONAL_PLUGINS_DIR` | - | Additional early plugins directory path |
 | `SERVER_LOG_LEVEL` | - | Server log level (e.g., `root=DEBUG`) |
-| `OWNER_NAME` | - | Display name for server owner |
+| `HYTALE_OWNER_NAME` | - | Display name for server owner |
+| **Mod Installation (CurseForge)** |||
+| `MOD_INSTALL_MODE` | `off` | `off` or `curseforge` |
+| `CURSEFORGE_MOD_LIST` | - | Comma-separated CurseForge mod IDs (`12345` or `12345:67890`) |
+| `CURSEFORGE_API_KEY` | - | CurseForge API key (required when `MOD_INSTALL_MODE=curseforge`) |
+| `CURSEFORGE_GAME_VERSION` | `Early Access` | Hytale version label used to pick matching files |
+| `CURSEFORGE_MODS_DIR` | `/data/curseforge-mods` | CurseForge mods directory (added as extra `--mods` path) |
 | **Logging & Debug** |||
 | `CONTAINER_LOG_LEVEL` | `INFO` | Container log level: `DEBUG`, `INFO`, `WARN`, `ERROR` |
 | `DRY_RUN` | `false` | Simulate startup without actually running the server |
@@ -209,6 +215,27 @@ Set `ALLOW_OP=true` to enable operator commands on the server.
 
 **Early Plugins (Unsupported):**
 Set `ACCEPT_EARLY_PLUGINS=true` to acknowledge loading early plugins. This is unsupported and may cause stability issues.
+
+### Automatic Mod Installation (CurseForge)
+
+Enable automatic mod installation by setting `MOD_INSTALL_MODE=curseforge`. Mods are installed into `CURSEFORGE_MODS_DIR` (default: `/data/curseforge-mods`), cached to avoid re-downloading, and stale cached mods are removed when they are no longer listed. This directory is added as an extra `--mods` path, so the default `mods` directory is still loaded too.
+
+The server always loads the default `mods` directory under `/data/mods`. Use that directory for your own custom jars, and use `CURSEFORGE_MODS_DIR` for auto-installed mods.
+CurseForge API access requires an API key; set `CURSEFORGE_API_KEY` or the container will exit on startup when `MOD_INSTALL_MODE=curseforge`.
+Set `CURSEFORGE_GAME_VERSION` to target a specific Hytale version label (ex: `Early Access`) when choosing the latest file.
+
+**Mod list format:**
+- `12345` (latest file)
+- `12345:67890` (specific file ID)
+
+**Example: Environment Variables**
+```yaml
+environment:
+  MOD_INSTALL_MODE: "curseforge"
+  CURSEFORGE_API_KEY: "your-api-key"
+  CURSEFORGE_GAME_VERSION: "Early Access"
+  CURSEFORGE_MOD_LIST: "12345,67890:111222"
+```
 
 ### Server Configuration (config.json & whitelist.json)
 

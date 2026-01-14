@@ -101,7 +101,20 @@ export const BOOT_COMMANDS = getEnv("BOOT_COMMANDS", "");
 export const ADDITIONAL_MODS_DIR = getEnv("ADDITIONAL_MODS_DIR", "");
 export const ADDITIONAL_PLUGINS_DIR = getEnv("ADDITIONAL_PLUGINS_DIR", "");
 export const SERVER_LOG_LEVEL = getEnv("SERVER_LOG_LEVEL", "");
-export const OWNER_NAME = getEnv("OWNER_NAME", "");
+export const HYTALE_OWNER_NAME = getEnv("HYTALE_OWNER_NAME", "");
+
+// =============================================================================
+// Mod Installation (CurseForge)
+// =============================================================================
+
+export const MOD_INSTALL_MODE = getEnv("MOD_INSTALL_MODE", "off");
+export const CURSEFORGE_MOD_LIST = getEnv("CURSEFORGE_MOD_LIST", "");
+export const CURSEFORGE_API_KEY = getEnv("CURSEFORGE_API_KEY", "");
+export const CURSEFORGE_GAME_VERSION = getEnv("CURSEFORGE_GAME_VERSION", "Early Access");
+export const CURSEFORGE_MODS_DIR = getEnv(
+  "CURSEFORGE_MODS_DIR",
+  resolve(DATA_DIR, "curseforge-mods")
+);
 
 // =============================================================================
 // Config File Generation (config.json / whitelist.json)

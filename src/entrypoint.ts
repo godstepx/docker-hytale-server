@@ -20,6 +20,7 @@ import { join } from "path";
 import { logInfo, logWarn, logError, logDebug, logBanner, die } from "./log-utils.ts";
 import { downloadServer, buildJavaArgs, validateServerFiles, setupDirectories } from "./setup.ts";
 import { writeConfigFiles } from "./config-writer.ts";
+import { installCurseForgeMods } from "./mod-installer.ts";
 import {
   acquireSessionTokens,
   startOAuthRefreshLoop,
@@ -172,7 +173,10 @@ async function main(): Promise<void> {
   // Phase 5: Validate files exist
   validateServerFiles();
 
-  // Phase 6: Acquire session tokens
+  // Phase 6: Install mods (if configured)
+  await installCurseForgeMods();
+
+  // Phase 7: Acquire session tokens
   logInfo("Acquiring session tokens...");
   const sessionTokens = await acquireSessionTokens();
 
@@ -186,7 +190,7 @@ async function main(): Promise<void> {
     logWarn("Use '/auth login device' in server console to authenticate");
   }
 
-  // Phase 7: Build Java command
+  // Phase 8: Build Java command
   const javaArgs = buildJavaArgs(sessionTokens);
 
   if (DRY_RUN) {
@@ -195,11 +199,11 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  // Phase 8: Start background tasks
+  // Phase 9: Start background tasks
   startOAuthRefreshLoop(); // Keeps refresh token alive for 30+ day runs
   startLogCleanupLoop(); // Daily log cleanup
 
-  // Phase 9: Start Java server
+  // Phase 10: Start Java server
   logInfo("Starting Hytale server...");
 
   javaProcess = Bun.spawn(["java", ...javaArgs], {

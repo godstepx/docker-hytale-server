@@ -40,7 +40,9 @@ import {
   ADDITIONAL_MODS_DIR,
   ADDITIONAL_PLUGINS_DIR,
   SERVER_LOG_LEVEL,
-  OWNER_NAME,
+  HYTALE_OWNER_NAME,
+  MOD_INSTALL_MODE,
+  CURSEFORGE_MODS_DIR,
   HYTALE_SERVER_SESSION_TOKEN,
   HYTALE_SERVER_IDENTITY_TOKEN,
   HYTALE_OWNER_UUID,
@@ -183,6 +185,14 @@ export function buildJavaArgs(sessionTokens: SessionTokens | null): string[] {
     logInfo(`Additional mods directory: ${ADDITIONAL_MODS_DIR}`);
   }
 
+  // CurseForge mod install directory (adds a second mods path)
+  if (MOD_INSTALL_MODE !== "off" && CURSEFORGE_MODS_DIR) {
+    if (!ADDITIONAL_MODS_DIR || ADDITIONAL_MODS_DIR !== CURSEFORGE_MODS_DIR) {
+      args.push("--mods", CURSEFORGE_MODS_DIR);
+      logInfo(`CurseForge mods directory: ${CURSEFORGE_MODS_DIR}`);
+    }
+  }
+
   // Additional early plugins directory
   if (ADDITIONAL_PLUGINS_DIR) {
     args.push("--early-plugins", ADDITIONAL_PLUGINS_DIR);
@@ -192,11 +202,6 @@ export function buildJavaArgs(sessionTokens: SessionTokens | null): string[] {
   // Server log level (e.g., root=DEBUG)
   if (SERVER_LOG_LEVEL) {
     args.push("--log", SERVER_LOG_LEVEL);
-  }
-
-  // Owner name (display name for server owner)
-  if (OWNER_NAME) {
-    args.push("--owner-name", OWNER_NAME);
   }
 
   // ==========================================================================
@@ -211,6 +216,9 @@ export function buildJavaArgs(sessionTokens: SessionTokens | null): string[] {
     }
     if (HYTALE_OWNER_UUID) {
       args.push("--owner-uuid", HYTALE_OWNER_UUID);
+    }
+    if (HYTALE_OWNER_NAME) {
+      args.push("--owner-name", HYTALE_OWNER_NAME);
     }
     logInfo("Using session tokens from environment variables");
   } else if (sessionTokens) {
@@ -244,4 +252,7 @@ export function setupDirectories(): void {
   mkdirSync(DATA_DIR, { recursive: true });
   mkdirSync(SERVER_DIR, { recursive: true });
   mkdirSync(LOG_DIR, { recursive: true });
+  if (MOD_INSTALL_MODE !== "off" && CURSEFORGE_MODS_DIR) {
+    mkdirSync(CURSEFORGE_MODS_DIR, { recursive: true });
+  }
 }
