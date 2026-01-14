@@ -140,7 +140,7 @@ The image handles `SIGTERM` to save world data before exiting.
 | `LAUNCHER_PATH` | - | Path to mounted launcher directory (skips download) |
 | `HYTALE_PATCHLINE` | `release` | `release` or `pre-release` |
 | `FORCE_DOWNLOAD` | `false` | Force re-download even if files exist |
-| `CHECK_UPDATES` | `false` | Check for updates on startup (prints latest version) |
+| `CHECK_UPDATES` | `true` | Check for updates on startup (prints latest version) |
 | `DOWNLOAD_MAX_RETRIES` | `5` | Max retry attempts for CLI download |
 | `DOWNLOAD_INITIAL_BACKOFF` | `2` | Initial backoff seconds between retries |
 | **Java Options** |||
