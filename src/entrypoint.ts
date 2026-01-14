@@ -32,6 +32,32 @@ import { DATA_DIR, LOG_DIR, LOG_RETENTION_DAYS, DRY_RUN } from "./config.ts";
 let javaProcess: Subprocess | null = null;
 let isShuttingDown = false;
 let logCleanupRunning = false;
+const APP_DIR = "/opt/hytale";
+
+function fixPermissionsAndDropPrivileges(): void {
+  if (typeof process.getuid !== "function" || process.getuid() !== 0) {
+    return;
+  }
+
+  logInfo("Fixing volume permissions...");
+  Bun.spawnSync(["chown", "-R", "hytale:hytale", DATA_DIR], {
+    stdio: ["ignore", "ignore", "ignore"],
+  });
+  Bun.spawnSync(["chown", "-R", "hytale:hytale", APP_DIR], {
+    stdio: ["ignore", "ignore", "ignore"],
+  });
+
+  logInfo("Dropping privileges to hytale user...");
+  const entrypointPath = "/opt/hytale/bin/entrypoint";
+  try {
+    const result = Bun.spawnSync(["su-exec", "hytale", entrypointPath, ...process.argv.slice(1)], {
+      stdio: ["inherit", "inherit", "inherit"],
+    });
+    process.exit(result.exitCode ?? 1);
+  } catch (error) {
+    die(`Failed to drop privileges with su-exec: ${error}`);
+  }
+}
 
 /**
  * Clean up old log files to prevent disk overflow
@@ -153,6 +179,7 @@ function setupSignalHandlers(): void {
  * Main entrypoint function
  */
 async function main(): Promise<void> {
+  fixPermissionsAndDropPrivileges();
   logBanner();
   setupSignalHandlers();
 

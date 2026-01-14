@@ -83,6 +83,7 @@ RUN apk add --no-cache \
     tini \
     libstdc++ \
     libgcc \
+    su-exec \
     unzip \
     && rm -rf /var/cache/apk/*
 
@@ -129,10 +130,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
 # Use tini as init system for proper signal handling
 ENTRYPOINT ["/sbin/tini", "--"]
 
-# Run as non-root user
-USER hytale
-
-# Start server with compiled binary
+# Start server with compiled binary (entrypoint drops to hytale via su-exec)
 CMD ["/opt/hytale/bin/entrypoint"]
 
 # Graceful shutdown

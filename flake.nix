@@ -20,9 +20,6 @@
       ];
 
       perSystem = { self', pkgs, system, lib, config, ... }:
-        let
-          bun = pkgs.bun;
-        in
         {
           _module.args.pkgs = import nixpkgs {
             inherit system;
