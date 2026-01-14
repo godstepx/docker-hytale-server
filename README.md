@@ -159,6 +159,22 @@ The image handles `SIGTERM` to save world data before exiting.
 | `DISABLE_SENTRY` | `false` | Disable crash reporting |
 | `ACCEPT_EARLY_PLUGINS` | `false` | Enable early plugins (unsupported, may cause stability issues) |
 | `ALLOW_OP` | `false` | Allow operator commands |
+| **Server Configuration (config.json)** |||
+| `SERVER_NAME` | `Hytale Server` | Server name displayed in browser |
+| `SERVER_MOTD` | - | Message of the day |
+| `SERVER_PASSWORD` | - | Server password (empty = no password) |
+| `MAX_PLAYERS` | `100` | Maximum player count |
+| `MAX_VIEW_RADIUS` | `32` | Maximum view distance |
+| `LOCAL_COMPRESSION_ENABLED` | `false` | Enable local compression |
+| `DEFAULT_WORLD` | `default` | Default world name |
+| `DEFAULT_GAME_MODE` | `Adventure` | Default game mode |
+| `DISPLAY_TMP_TAGS_IN_STRINGS` | `false` | Display temporary tags in strings |
+| `PLAYER_STORAGE_TYPE` | `Hytale` | Player storage type |
+| `HYTALE_CONFIG_JSON` | - | Full JSON override for config.json |
+| **Whitelist Configuration** |||
+| `WHITELIST_ENABLED` | `false` | Enable whitelist |
+| `WHITELIST_LIST` | - | Comma-separated list of player UUIDs |
+| `WHITELIST_JSON` | - | Full JSON override for whitelist.json |
 | **Advanced Options** |||
 | `TRANSPORT_TYPE` | - | Transport protocol (e.g., `QUIC`, `TCP`) |
 | `BOOT_COMMANDS` | - | Commands to run on boot (comma-separated) |
@@ -193,6 +209,32 @@ Set `ALLOW_OP=true` to enable operator commands on the server.
 
 **Early Plugins (Unsupported):**
 Set `ACCEPT_EARLY_PLUGINS=true` to acknowledge loading early plugins. This is unsupported and may cause stability issues.
+
+### Server Configuration (config.json & whitelist.json)
+
+The container can automatically generate or patch `config.json` and `whitelist.json` at startup using environment variables.
+
+**Behavior:**
+- If file doesn't exist: created with defaults
+- If file exists and env vars are set: only the specified fields are patched
+- `HYTALE_CONFIG_JSON` / `WHITELIST_JSON`: full file override (replaces entire file)
+
+**Example: Basic Server Configuration**
+```yaml
+environment:
+  SERVER_NAME: "My Awesome Server"
+  SERVER_MOTD: "Welcome to the party!"
+  MAX_PLAYERS: "50"
+  DEFAULT_GAME_MODE: "Adventure"
+  WHITELIST_ENABLED: "true"
+  WHITELIST_LIST: "uuid-1,uuid-2,uuid-3"
+```
+
+**Example: Full JSON Override**
+```yaml
+environment:
+  HYTALE_CONFIG_JSON: '{"Version": 3, "ServerName": "Custom", "MOTD": "", "Password": "", "MaxPlayers": 100, "MaxViewRadius": 32, "LocalCompressionEnabled": false, "Defaults": {"World": "default", "GameMode": "Adventure"}, "ConnectionTimeouts": {"JoinTimeouts": {}}, "RateLimit": {}, "Modules": {}, "LogLevels": {}, "Mods": {}, "DisplayTmpTagsInStrings": false, "PlayerStorage": {"Type": "Hytale"}}'
+```
 
 ### Authentication & Token Management
 
@@ -235,7 +277,8 @@ For token acquisition, see the Official Hytale Documentation [Server Provider Au
 - `/data` - Everything persistent (Worlds, Configs, Logs, Auth)
   - `/data/server.input` - Named pipe for console commands
   - `/data/universe/` - World saves
-  - `/data/config.json` - Server configuration (managed by Hytale)
+  - `/data/config.json` - Server configuration (auto-generated from env vars or managed by Hytale)
+  - `/data/whitelist.json` - Whitelist configuration (auto-generated from env vars)
   - `/data/.auth/` - CLI auth cache (OAuth tokens)
   - `/data/backups/` - Automatic backups (if enabled)
 

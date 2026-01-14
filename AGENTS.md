@@ -35,8 +35,9 @@ the key project concepts and default guidelines. Update as needed.
 ## Repository Layout
 - `Dockerfile`: multi-stage build (Bun compilation + CLI download + production), env defaults, healthcheck, non-root user.
 - `Justfile`: development task runner (build, test, lint, format, etc.).
-- `src/entrypoint.ts`: main entrypoint - downloads files, acquires tokens, starts Java, handles signals. Compiled to binary.
+- `src/entrypoint.ts`: main entrypoint - downloads files, writes configs, acquires tokens, starts Java, handles signals. Compiled to binary.
 - `src/setup.ts`: setup utilities - Java args building, file validation. Imported by entrypoint.
+- `src/config-writer.ts`: config.json and whitelist.json generation from env vars. Imported by entrypoint.
 - `src/token-manager.ts`: OAuth2 device flow, token refresh, session creation. Imported by entrypoint (not a standalone binary).
 - `src/download.ts`: download/copy server files + version tracking - imported by entrypoint.
 - `src/config.ts`: centralized configuration with all env var defaults.
@@ -49,12 +50,12 @@ the key project concepts and default guidelines. Update as needed.
 
 ## Container Runtime Flow
 1. Entrypoint binary (`/opt/hytale/bin/entrypoint`) sets up `/data` directories.
-2. Download module ensures server files are present (by mode: cli, launcher, or manual).
-3. Token manager acquires OAuth tokens and creates game session (or uses env vars).
-4. Java starts `HytaleServer.jar` with assets, auth tokens, and command-line args.
-5. Background OAuth refresh loop keeps tokens alive for indefinite runs (30+ days).
-6. SIGTERM -> graceful shutdown (30s timeout); SIGKILL if needed.
-7. Hytale manages its own `config.json` files in `/data`.
+2. Config writer generates `config.json` and `whitelist.json` from env vars (if needed).
+3. Download module ensures server files are present (by mode: cli, launcher, or manual).
+4. Token manager acquires OAuth tokens and creates game session (or uses env vars).
+5. Java starts `HytaleServer.jar` with assets, auth tokens, and command-line args.
+6. Background OAuth refresh loop keeps tokens alive for indefinite runs (30+ days).
+7. SIGTERM -> graceful shutdown (30s timeout); SIGKILL if needed.
 
 **Technical Implementation:**
 - TypeScript compiled to standalone Bun binaries during Docker build.
@@ -114,6 +115,10 @@ Based on Aikar's flags (widely used for Minecraft servers), adapted for Hytale.
 - Java: `JAVA_XMS`, `JAVA_XMX`, `JAVA_OPTS`, `ENABLE_AOT_CACHE`.
 - Server: `SERVER_PORT`, `BIND_ADDRESS`, `AUTH_MODE`, `DISABLE_SENTRY`,
   `ENABLE_BACKUPS`, `BACKUP_FREQUENCY`, `BACKUP_DIR`, `BACKUP_MAX_COUNT`, `ACCEPT_EARLY_PLUGINS`, `ALLOW_OP`.
+- Config generation: `HYTALE_CONFIG_JSON`, `SERVER_NAME`, `SERVER_MOTD`, `SERVER_PASSWORD`,
+  `MAX_PLAYERS`, `MAX_VIEW_RADIUS`, `LOCAL_COMPRESSION_ENABLED`, `DEFAULT_WORLD`,
+  `DEFAULT_GAME_MODE`, `DISPLAY_TMP_TAGS_IN_STRINGS`, `PLAYER_STORAGE_TYPE`.
+- Whitelist: `WHITELIST_ENABLED`, `WHITELIST_LIST` (comma-separated), `WHITELIST_JSON`.
 - Advanced: `TRANSPORT_TYPE`, `BOOT_COMMANDS`, `ADDITIONAL_MODS_DIR`, `ADDITIONAL_PLUGINS_DIR`,
   `SERVER_LOG_LEVEL`, `OWNER_NAME`.
 - Auth tokens (for hosting providers): `HYTALE_SERVER_SESSION_TOKEN`, `HYTALE_SERVER_IDENTITY_TOKEN`, `HYTALE_OWNER_UUID`.
@@ -131,7 +136,8 @@ Based on Aikar's flags (widely used for Minecraft servers), adapted for Hytale.
 - `/data/server/`: server binaries (`HytaleServer.jar`, AOT cache).
 - `/data/Assets.zip`: game assets.
 - `/data/universe/`: world saves.
-- `/data/config.json`: server config (managed by Hytale).
+- `/data/config.json`: server config (auto-generated from env vars or managed by Hytale).
+- `/data/whitelist.json`: whitelist config (auto-generated from env vars).
 - `/data/.auth/`: OAuth token storage for persistent authentication.
   - `.oauth-tokens.json`: OAuth access/refresh tokens (30-day refresh token TTL).
 - `/data/.hytale-cli/`: fallback CLI location (backward compatibility, rarely used).

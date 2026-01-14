@@ -27,6 +27,13 @@ function getEnvInt(key: string, defaultValue: number): number {
   return isNaN(parsed) ? defaultValue : parsed;
 }
 
+/**
+ * Check if an environment variable is explicitly set (not relying on default)
+ */
+export function isEnvSet(key: string): boolean {
+  return process.env[key] !== undefined;
+}
+
 // =============================================================================
 // Path Configuration
 // =============================================================================
@@ -95,6 +102,30 @@ export const ADDITIONAL_MODS_DIR = getEnv("ADDITIONAL_MODS_DIR", "");
 export const ADDITIONAL_PLUGINS_DIR = getEnv("ADDITIONAL_PLUGINS_DIR", "");
 export const SERVER_LOG_LEVEL = getEnv("SERVER_LOG_LEVEL", "");
 export const OWNER_NAME = getEnv("OWNER_NAME", "");
+
+// =============================================================================
+// Config File Generation (config.json / whitelist.json)
+// =============================================================================
+
+// Full JSON override (highest priority) - use entire JSON string as config
+export const HYTALE_CONFIG_JSON = getEnv("HYTALE_CONFIG_JSON", "");
+
+// Individual config.json fields
+export const SERVER_NAME = getEnv("SERVER_NAME", "Hytale Server");
+export const SERVER_MOTD = getEnv("SERVER_MOTD", "");
+export const SERVER_PASSWORD = getEnv("SERVER_PASSWORD", "");
+export const MAX_PLAYERS = getEnvInt("MAX_PLAYERS", 100);
+export const MAX_VIEW_RADIUS = getEnvInt("MAX_VIEW_RADIUS", 32);
+export const LOCAL_COMPRESSION_ENABLED = getEnvBool("LOCAL_COMPRESSION_ENABLED", false);
+export const DEFAULT_WORLD = getEnv("DEFAULT_WORLD", "default");
+export const DEFAULT_GAME_MODE = getEnv("DEFAULT_GAME_MODE", "Adventure");
+export const DISPLAY_TMP_TAGS_IN_STRINGS = getEnvBool("DISPLAY_TMP_TAGS_IN_STRINGS", false);
+export const PLAYER_STORAGE_TYPE = getEnv("PLAYER_STORAGE_TYPE", "Hytale");
+
+// Whitelist configuration
+export const WHITELIST_ENABLED = getEnvBool("WHITELIST_ENABLED", false);
+export const WHITELIST_LIST = getEnv("WHITELIST_LIST", ""); // Comma-separated player UUIDs
+export const WHITELIST_JSON = getEnv("WHITELIST_JSON", ""); // Full JSON override
 
 // =============================================================================
 // Backup Configuration

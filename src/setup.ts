@@ -8,9 +8,6 @@
  * - File validation
  *
  * This module is imported by entrypoint.ts for the main server flow.
- *
- * Note: Hytale manages its own config.json files.
- * See official docs: https://support.hytale.com/hc/en-us/articles/45326769420827
  */
 
 import { existsSync, mkdirSync } from "fs";
@@ -159,7 +156,9 @@ export function buildJavaArgs(sessionTokens: SessionTokens | null): string[] {
     args.push("--backup-dir", BACKUP_DIR);
     args.push("--backup-frequency", BACKUP_FREQUENCY);
     args.push("--backup-max-count", BACKUP_MAX_COUNT);
-    logInfo(`Backups enabled: every ${BACKUP_FREQUENCY} minutes to ${BACKUP_DIR} (max ${BACKUP_MAX_COUNT})`);
+    logInfo(
+      `Backups enabled: every ${BACKUP_FREQUENCY} minutes to ${BACKUP_DIR} (max ${BACKUP_MAX_COUNT})`
+    );
   }
 
   // Transport type (e.g., QUIC, TCP)
@@ -169,7 +168,9 @@ export function buildJavaArgs(sessionTokens: SessionTokens | null): string[] {
 
   // Boot commands (comma-separated, run on server start)
   if (BOOT_COMMANDS) {
-    const commands = BOOT_COMMANDS.split(",").map((cmd) => cmd.trim()).filter((cmd) => cmd.length > 0);
+    const commands = BOOT_COMMANDS.split(",")
+      .map((cmd) => cmd.trim())
+      .filter((cmd) => cmd.length > 0);
     for (const cmd of commands) {
       args.push("--boot-command", cmd);
     }

@@ -11,7 +11,7 @@
  * 6. Handles signals for graceful shutdown
  *
  * The Hytale server handles game session refresh internally when started
- * with --session-token and --identity-token flags.
+ * with --session-token and --identity-token flags. (https://support.hytale.com/hc/en-us/articles/45328341414043-Server-Provider-Authentication-Guide#token-lifecycle)
  */
 
 import { Subprocess } from "bun";
@@ -19,6 +19,7 @@ import { readdirSync, statSync, unlinkSync } from "fs";
 import { join } from "path";
 import { logInfo, logWarn, logError, logDebug, logBanner, die } from "./log-utils.ts";
 import { downloadServer, buildJavaArgs, validateServerFiles, setupDirectories } from "./setup.ts";
+import { writeConfigFiles } from "./config-writer.ts";
 import {
   acquireSessionTokens,
   startOAuthRefreshLoop,
@@ -161,14 +162,17 @@ async function main(): Promise<void> {
   // Phase 2: Clean up old logs
   cleanupOldLogs();
 
-  // Phase 3: Download server files (if needed)
+  // Phase 3: Write config files (if needed)
+  await writeConfigFiles();
+
+  // Phase 4: Download server files (if needed)
   logInfo("Ensuring server files...");
   await downloadServer();
 
-  // Phase 4: Validate files exist
+  // Phase 5: Validate files exist
   validateServerFiles();
 
-  // Phase 5: Acquire session tokens
+  // Phase 6: Acquire session tokens
   logInfo("Acquiring session tokens...");
   const sessionTokens = await acquireSessionTokens();
 
@@ -182,7 +186,7 @@ async function main(): Promise<void> {
     logWarn("Use '/auth login device' in server console to authenticate");
   }
 
-  // Phase 6: Build Java command
+  // Phase 7: Build Java command
   const javaArgs = buildJavaArgs(sessionTokens);
 
   if (DRY_RUN) {
@@ -191,11 +195,11 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  // Phase 7: Start background tasks
+  // Phase 8: Start background tasks
   startOAuthRefreshLoop(); // Keeps refresh token alive for 30+ day runs
   startLogCleanupLoop(); // Daily log cleanup
 
-  // Phase 8: Start Java server
+  // Phase 9: Start Java server
   logInfo("Starting Hytale server...");
 
   javaProcess = Bun.spawn(["java", ...javaArgs], {
