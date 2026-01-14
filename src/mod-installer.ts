@@ -72,21 +72,26 @@ function parseModSpec(raw: string): ModRequest | null {
   if (!trimmed) return null;
 
   const separator = trimmed.includes("@") ? "@" : trimmed.includes(":") ? ":" : null;
-  const [idPart, filePart] = separator ? trimmed.split(separator, 2) : [trimmed, ""];
+  const [idPartRaw, filePartRaw] = separator ? trimmed.split(separator, 2) : [trimmed, ""];
+  const idPart = idPartRaw ?? "";
+  const filePart = filePartRaw ?? "";
   const modId = Number.parseInt(idPart, 10);
-  const fileId = filePart ? Number.parseInt(filePart, 10) : undefined;
+  let fileId: number | undefined;
 
   if (!Number.isFinite(modId) || modId <= 0) {
     logWarn(`Invalid CurseForge mod id: ${raw}`);
     return null;
   }
 
-  if (filePart && (!Number.isFinite(fileId) || fileId <= 0)) {
-    logWarn(`Invalid CurseForge file id: ${raw}`);
-    return null;
+  if (filePart) {
+    fileId = Number.parseInt(filePart, 10);
+    if (!Number.isFinite(fileId) || fileId <= 0) {
+      logWarn(`Invalid CurseForge file id: ${raw}`);
+      return null;
+    }
   }
 
-  return { modId, fileId, raw: trimmed };
+  return fileId === undefined ? { modId, raw: trimmed } : { modId, fileId, raw: trimmed };
 }
 
 function parseModList(list: string): ModRequest[] {
