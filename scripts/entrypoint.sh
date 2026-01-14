@@ -325,29 +325,21 @@ start_server() {
                 fi
                 
                 # Set persistence after successful auth (only once)
-                if [[ "$persistence_set" == "false" ]] && grep -Ei "Authentication.*success" "$latest_log" 2>/dev/null; then
-                    log_info "Auth successful! Setting persistence to Encrypted..."
-                    sleep 2
-                    echo "/auth persistence Encrypted" > "$INPUT_PIPE"
+                if [[ "$persistence_set" == "false" ]] && grep -Eq "Authentication successful|auth\.login\.device\.success" "$latest_log" 2>/dev/null; then
+                    log_info "Auth successful! Setting persistence to Plaintext..."
+                    sleep 1
+                    echo "/auth persistence Plaintext" > "$INPUT_PIPE"
                     persistence_set=true
                     log_info "Credentials will now persist across restarts."
                 fi
 
-                # Fallback if encrypted persistence is unavailable (common in containers)
-                if [[ "$plaintext_fallback" == "false" ]] && grep -Eq "Cannot derive encryption key|Failed to get hardware UUID" "$latest_log" 2>/dev/null; then
-                    log_warn "Encrypted credential store unavailable; falling back to plaintext persistence."
-                    echo "/auth persistence Plaintext" > "$INPUT_PIPE"
-                    plaintext_fallback=true
-                    persistence_set=true
-                fi
-
-                # Fallback: attempt to set persistence shortly after triggering auth
+                # Fallback: attempt to set persistence shortly after triggering auth (10 seconds)
                 if [[ "$persistence_set" == "false" && "$auth_triggered" == "true" ]]; then
                     local now
                     now=$(date +%s)
-                    if (( now - auth_trigger_time >= 20 )); then
-                        log_info "Attempting to enable credential persistence..."
-                        echo "/auth persistence Encrypted" > "$INPUT_PIPE"
+                    if (( now - auth_trigger_time >= 10 )); then
+                        log_info "Fallback: Attempting to enable credential persistence..."
+                        echo "/auth persistence Plaintext" > "$INPUT_PIPE"
                         persistence_set=true
                     fi
                 fi
