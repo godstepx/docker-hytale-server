@@ -157,6 +157,20 @@ acquire_session_tokens() {
         return 0
     fi
     
+    # First validate existing OAuth tokens actually work
+    # This catches expired/revoked tokens early instead of failing silently
+    if "${SCRIPT_DIR}/token-manager.sh" status 2>/dev/null | grep -q "Refresh token: Present"; then
+        log_info "[TOKEN] Found stored OAuth tokens, validating..."
+        if ! "${SCRIPT_DIR}/token-manager.sh" validate &>/dev/null; then
+            log_warn "[TOKEN] Stored OAuth tokens are invalid or expired, clearing..."
+            "${SCRIPT_DIR}/token-manager.sh" clear &>/dev/null || true
+            log_info "[TOKEN] Invalid tokens cleared - device authorization will be required"
+            TOKENS_LOADED=false
+            return 1
+        fi
+        log_info "[TOKEN] OAuth tokens validated successfully"
+    fi
+    
     # Check if token-manager can acquire tokens
     log_info "[TOKEN] Attempting to load stored credentials..."
     if "${SCRIPT_DIR}/token-manager.sh" acquire > /dev/null 2>&1; then
@@ -303,8 +317,15 @@ build_java_args() {
     local args=()
     
     # Memory settings
+    # Note: Java accepts formats like 1G, 4G, 512M - NOT 1GB, 4GB, 512MB
+    # We auto-fix common mistake of using GB/MB instead of G/M
     local xms="${JAVA_XMS:-1G}"
     local xmx="${JAVA_XMX:-4G}"
+    
+    # Strip trailing 'B' from memory values (e.g., 4GB -> 4G, 512MB -> 512M)
+    xms="${xms%B}"
+    xmx="${xmx%B}"
+    
     args+=("-Xms${xms}" "-Xmx${xmx}")
     
     # Check if AOT cache is valid and enabled

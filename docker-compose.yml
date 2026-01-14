@@ -13,6 +13,9 @@ services:
       # Export the auth link to the local directory for visibility
       - ./AUTH_LINK.url:/data/AUTH_LINK.url
       - ./SERVER_AUTH.url:/data/SERVER_AUTH.url
+      # Mount machine-id for consistent hardware identification across restarts
+      # This helps with OAuth token persistence (Hytale may bind tokens to hardware UUID)
+      - /etc/machine-id:/etc/machine-id:ro
     environment:
       - JAVA_XMS=1G
       - JAVA_XMX=4G

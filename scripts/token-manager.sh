@@ -100,6 +100,58 @@ has_session_tokens() {
     return 1
 }
 
+# Validate OAuth tokens by attempting to fetch profiles
+# Returns 0 if tokens are valid, 1 if expired/invalid
+validate_oauth_tokens() {
+    if ! has_oauth_tokens; then
+        return 1
+    fi
+    
+    log_info "Validating stored OAuth tokens..."
+    
+    local stored_tokens access_token
+    stored_tokens=$(get_oauth_tokens)
+    access_token=$(echo "$stored_tokens" | jq -r '.access_token // empty')
+    
+    # If no access token, try to refresh first
+    if [[ -z "$access_token" ]]; then
+        access_token=$(refresh_oauth_tokens 2>/dev/null) || return 1
+    fi
+    
+    # Try to fetch profiles as a validation check
+    local response http_code
+    response=$(curl -sS -w "\n%{http_code}" -X GET "$PROFILES_URL" \
+        -H "Authorization: Bearer ${access_token}" 2>&1)
+    http_code=$(echo "$response" | tail -n1)
+    response=$(echo "$response" | sed '$d')
+    
+    case "$http_code" in
+        200)
+            log_info "OAuth tokens are valid"
+            return 0
+            ;;
+        401|403)
+            log_warn "OAuth tokens rejected (HTTP $http_code) - tokens may be expired or revoked"
+            return 1
+            ;;
+        *)
+            log_warn "Unexpected response validating tokens (HTTP $http_code)"
+            # Don't fail on network errors, only auth errors
+            if [[ "$http_code" =~ ^[45] ]]; then
+                return 1
+            fi
+            return 0
+            ;;
+    esac
+}
+
+# Clear all stored tokens (for recovery from invalid state)
+clear_tokens() {
+    log_info "Clearing stored tokens..."
+    rm -f "$TOKEN_FILE" "$OAUTH_TOKEN_FILE"
+    log_info "Tokens cleared"
+}
+
 # Get stored session tokens
 get_session_tokens() {
     if [[ -f "$TOKEN_FILE" ]]; then
@@ -144,12 +196,22 @@ refresh_oauth_tokens() {
         return 1
     fi
     
-    local response
-    response=$(curl -sS -X POST "$OAUTH_TOKEN_URL" \
+    local response http_code
+    response=$(curl -sS -w "\n%{http_code}" -X POST "$OAUTH_TOKEN_URL" \
         -H "Content-Type: application/x-www-form-urlencoded" \
         -d "client_id=${CLIENT_ID}" \
         -d "grant_type=refresh_token" \
         -d "refresh_token=${refresh_token}" 2>&1)
+    http_code=$(echo "$response" | tail -n1)
+    response=$(echo "$response" | sed '$d')
+    
+    # Handle HTTP 401/403 by clearing tokens - they're invalid/revoked
+    if [[ "$http_code" == "401" || "$http_code" == "403" ]]; then
+        log_warn "Token refresh rejected (HTTP $http_code) - clearing invalid tokens"
+        log_warn "This may be due to: expired refresh token (30+ days), revoked access, or hardware ID mismatch"
+        rm -f "$OAUTH_TOKEN_FILE" "$TOKEN_FILE"
+        return 1
+    fi
     
     local error
     error=$(echo "$response" | jq -r '.error // empty' 2>/dev/null)
@@ -157,6 +219,11 @@ refresh_oauth_tokens() {
     if [[ -n "$error" ]]; then
         log_error "Token refresh failed: $error"
         log_error "Response: $response"
+        # Clear tokens on specific OAuth errors that indicate invalid tokens
+        if [[ "$error" == "invalid_grant" || "$error" == "unauthorized_client" ]]; then
+            log_warn "Clearing invalid tokens..."
+            rm -f "$OAUTH_TOKEN_FILE" "$TOKEN_FILE"
+        fi
         return 1
     fi
     
@@ -501,8 +568,17 @@ case "${1:-}" in
             exit 1
         fi
         ;;
+    validate)
+        if validate_oauth_tokens; then
+            echo "OAuth tokens are valid"
+            exit 0
+        else
+            echo "OAuth tokens are invalid or expired"
+            exit 1
+        fi
+        ;;
     clear)
-        rm -f "$TOKEN_FILE" "$OAUTH_TOKEN_FILE"
+        clear_tokens
         echo "Tokens cleared"
         exit 0
         ;;
@@ -529,16 +605,17 @@ case "${1:-}" in
         exit 0
         ;;
     *)
-        echo "Usage: $0 {check|acquire|auth|export|refresh|status|clear}"
+        echo "Usage: $0 {check|acquire|auth|export|refresh|validate|status|clear}"
         echo ""
         echo "Commands:"
-        echo "  check   - Check if valid session tokens exist"
-        echo "  acquire - Get or create session tokens (uses stored OAuth tokens)"
-        echo "  auth    - Interactive device authorization flow"
-        echo "  export  - Output tokens as shell export commands"
-        echo "  refresh - Refresh OAuth tokens using refresh token"
-        echo "  status  - Show current token status"
-        echo "  clear   - Delete all stored tokens"
+        echo "  check    - Check if valid session tokens exist"
+        echo "  acquire  - Get or create session tokens (uses stored OAuth tokens)"
+        echo "  auth     - Interactive device authorization flow"
+        echo "  export   - Output tokens as shell export commands"
+        echo "  refresh  - Refresh OAuth tokens using refresh token"
+        echo "  validate - Validate stored OAuth tokens against Hytale API"
+        echo "  status   - Show current token status"
+        echo "  clear    - Delete all stored tokens"
         exit 1
         ;;
 esac
