@@ -83,6 +83,7 @@ RUN apk add --no-cache \
     tini \
     libstdc++ \
     libgcc \
+    gcompat \
     su-exec \
     unzip \
     && rm -rf /var/cache/apk/*
