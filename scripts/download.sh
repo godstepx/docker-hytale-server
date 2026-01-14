@@ -80,7 +80,7 @@ detect_cli_binary() {
 }
 
 download_cli() {
-    log_info "Downloading Hytale Downloader CLI..."
+    log_debug "Downloading Hytale CLI..."
     
     mkdir -p "$CLI_DIR"
     local temp_zip
@@ -88,10 +88,10 @@ download_cli() {
     
     local attempt=1
     while [[ $attempt -le $MAX_RETRIES ]]; do
-        log_info "Download attempt $attempt/$MAX_RETRIES..."
+        log_debug "Download attempt $attempt/$MAX_RETRIES..."
         
         if curl -fsSL -o "$temp_zip" "$CLI_DOWNLOAD_URL"; then
-            log_info "Extracting CLI..."
+            log_debug "Extracting CLI..."
             unzip -o -q "$temp_zip" -d "$CLI_DIR"
             
             # Make all potential binaries executable
@@ -103,7 +103,7 @@ download_cli() {
             local binary
             binary=$(detect_cli_binary)
             if [[ -n "$binary" ]]; then
-                log_info "CLI downloaded successfully: $(basename "$binary")"
+                log_debug "CLI ready: $(basename "$binary")"
                 return 0
             else
                 die "CLI extracted but no executable found in $CLI_DIR"
@@ -248,10 +248,7 @@ download_server_files() {
         download_args+=("-patchline" "$PATCHLINE")
     fi
     
-    log_separator
-    log_info "Running Hytale Downloader..."
-    log_info "If this is your first time, you will need to authorize:"
-    log_separator
+    log_info "Downloading server files (first run may require OAuth)..."
     
     # Get CLI binary path
     local cli_bin
@@ -263,7 +260,7 @@ download_server_files() {
     local last_error=""
 
     while [[ $attempt -le $MAX_RETRIES ]]; do
-        log_info "Downloader attempt $attempt/$MAX_RETRIES..."
+        log_debug "Download attempt $attempt/$MAX_RETRIES..."
         if run_cli_download "$cli_bin" "${download_args[@]}"; then
             success=true
             break
@@ -441,9 +438,8 @@ copy_from_launcher() {
 # =============================================================================
 
 main() {
-    log_info "Hytale Server File Manager"
-    log_info "=========================="
-    log_info "Mode: $DOWNLOAD_MODE"
+    # Mode is already logged in entrypoint.sh, skip here
+    log_debug "Download mode: $DOWNLOAD_MODE"
     
     # DRY_RUN mode
     if [[ "${DRY_RUN:-false}" == "true" ]]; then
@@ -495,7 +491,7 @@ main() {
         
         auto|*)
             # Auto mode: Try methods in order of preference
-            log_info "Auto-detecting best method..."
+            log_debug "Auto-detecting download method..."
             
             # 1. Try launcher path if set
             if [[ -n "$LAUNCHER_PATH" ]]; then
@@ -509,7 +505,7 @@ main() {
             
             # 2. Try CLI if URL is set
             if [[ -n "$CLI_DOWNLOAD_URL" ]]; then
-                log_info "Trying CLI download..."
+                log_debug "Using CLI download..."
                 ensure_cli
                 download_server_files
                 log_info "Server files ready!"
