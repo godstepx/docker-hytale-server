@@ -297,13 +297,22 @@ start_server() {
     local SERVER_OUTPUT_LOG="${LOG_DIR}/server-output.log"
     : > "$SERVER_OUTPUT_LOG"  # Truncate/create the log file
     
-    # We use a helper process to keep the pipe open
-    # Server output is written to both stdout and log file for monitoring
-    tail -f "$INPUT_PIPE" | java $java_args 2>&1 | tee -a "$SERVER_OUTPUT_LOG" &
+    # Start server with proper process tracking
+    # We use a wrapper script approach to capture all PIDs
+    cd "$DATA_DIR"
+    
+    # Start the pipeline in a way we can kill all processes
+    # Using process substitution and exec to get the Java PID
+    (
+        exec tail -f "$INPUT_PIPE" | java $java_args 2>&1 | tee -a "$SERVER_OUTPUT_LOG"
+    ) &
     SERVER_PID=$!
     
+    # Also save the process group ID for reliable killing
     echo "$SERVER_PID" > "$PID_FILE"
-        log_info "Server started with PID: $SERVER_PID"
+    # Store PGID (same as PID for group leader) for killing all related processes
+    echo "-$SERVER_PID" > "${PID_FILE}.pgid"
+    log_info "Server started with PID: $SERVER_PID"
 
     # Background monitor for auth requirements and persistence
     (
@@ -377,15 +386,23 @@ start_server() {
                         if "${SCRIPT_DIR}/token-manager.sh" auth; then
                             log_info "Authentication complete! Tokens saved."
                             log_info "Restarting server to apply new tokens..."
-                            # Kill the server so it restarts with tokens
-                            # Use hardcoded path since readonly vars aren't available in subshell
-                            local pid
-                            pid=$(cat "/data/server.pid" 2>/dev/null)
-                            if [[ -n "$pid" ]]; then
-                                log_info "Sending SIGTERM to PID $pid..."
-                                kill -SIGTERM "$pid" 2>/dev/null || log_warn "Failed to kill process $pid"
+                            # Kill the entire process group to stop all pipeline processes
+                            local pgid
+                            pgid=$(cat "/data/server.pid.pgid" 2>/dev/null)
+                            if [[ -n "$pgid" ]]; then
+                                log_info "Killing process group $pgid..."
+                                kill -SIGTERM $pgid 2>/dev/null || true
+                                # Also try pkill for java processes owned by hytale user
+                                pkill -SIGTERM -f "HytaleServer.jar" 2>/dev/null || true
                             else
-                                log_warn "Could not find server PID"
+                                # Fallback: kill by PID and also java process
+                                local pid
+                                pid=$(cat "/data/server.pid" 2>/dev/null)
+                                if [[ -n "$pid" ]]; then
+                                    log_info "Killing PID $pid and Java process..."
+                                    kill -SIGTERM "$pid" 2>/dev/null || true
+                                fi
+                                pkill -SIGTERM -f "HytaleServer.jar" 2>/dev/null || true
                             fi
                         else
                             log_error "Authentication failed. Please try again."
@@ -415,13 +432,20 @@ start_server() {
                         if "${SCRIPT_DIR}/token-manager.sh" auth; then
                             log_info "Authentication complete! Tokens saved."
                             log_info "Restarting server to apply new tokens..."
-                            local pid
-                            pid=$(cat "/data/server.pid" 2>/dev/null)
-                            if [[ -n "$pid" ]]; then
-                                log_info "Sending SIGTERM to PID $pid..."
-                                kill -SIGTERM "$pid" 2>/dev/null || log_warn "Failed to kill process $pid"
+                            # Kill the entire process group
+                            local pgid
+                            pgid=$(cat "/data/server.pid.pgid" 2>/dev/null)
+                            if [[ -n "$pgid" ]]; then
+                                log_info "Killing process group $pgid..."
+                                kill -SIGTERM $pgid 2>/dev/null || true
+                                pkill -SIGTERM -f "HytaleServer.jar" 2>/dev/null || true
                             else
-                                log_warn "Could not find server PID"
+                                local pid
+                                pid=$(cat "/data/server.pid" 2>/dev/null)
+                                if [[ -n "$pid" ]]; then
+                                    kill -SIGTERM "$pid" 2>/dev/null || true
+                                fi
+                                pkill -SIGTERM -f "HytaleServer.jar" 2>/dev/null || true
                             fi
                         fi
                     ) &
