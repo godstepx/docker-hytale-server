@@ -586,7 +586,6 @@ case "${1:-}" in
         echo "=== OAuth Tokens ==="
         if has_oauth_tokens; then
             echo "Refresh token: Present"
-            local oauth_tokens
             oauth_tokens=$(get_oauth_tokens)
             echo "Access token expires: $(echo "$oauth_tokens" | jq -r '.expires_at // "unknown"')"
         else
@@ -595,7 +594,6 @@ case "${1:-}" in
         echo ""
         echo "=== Session Tokens ==="
         if has_session_tokens; then
-            local session_tokens
             session_tokens=$(get_session_tokens)
             echo "Profile: $(echo "$session_tokens" | jq -r '.profile_uuid // "unknown"')"
             echo "Session expires: $(echo "$session_tokens" | jq -r '.expires_at // "unknown"')"
