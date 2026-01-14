@@ -47,6 +47,8 @@ readonly AOT_CACHE="${SERVER_DIR}/HytaleServer.aot"
 readonly INPUT_PIPE="${DATA_DIR}/server.input"
 readonly VERSION_FILE="${DATA_DIR}/.version"
 readonly SERVER_LOG_DIR="${SERVER_DIR}/logs"
+readonly AUTO_AUTH_DEVICE_ON_START="${AUTO_AUTH_DEVICE_ON_START:-true}"
+readonly AUTO_AUTH_TRIGGER_DELAY="${AUTO_AUTH_TRIGGER_DELAY:-30}"
 
 # Server process PID
 SERVER_PID=""
@@ -255,6 +257,7 @@ start_server() {
         local persistence_set=false
         local auth_trigger_time=0
         local plaintext_fallback=false
+        local startup_auth_sent=false
         
         # Give server time to start
         sleep 10
@@ -327,6 +330,19 @@ start_server() {
                 fi
             fi
             
+            # Startup fallback: if no auth seen yet, trigger after delay
+            if [[ "$AUTO_AUTH_DEVICE_ON_START" == "true" && "$auth_triggered" == "false" && "$startup_auth_sent" == "false" ]]; then
+                local now
+                now=$(date +%s)
+                if (( now - auth_trigger_time >= AUTO_AUTH_TRIGGER_DELAY )); then
+                    log_info "Startup auth fallback: triggering /auth login device..."
+                    echo "/auth login device" > "$INPUT_PIPE"
+                    startup_auth_sent=true
+                    auth_triggered=true
+                    auth_trigger_time=$now
+                fi
+            fi
+
             sleep 5
         done
     ) &
