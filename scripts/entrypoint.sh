@@ -117,6 +117,33 @@ download_server() {
 }
 
 # =============================================================================
+# Token Management
+# =============================================================================
+
+# Try to acquire session tokens from stored OAuth tokens
+acquire_session_tokens() {
+    log_info "Checking for stored authentication tokens..."
+    
+    # Skip if tokens already provided via environment
+    if [[ -n "${HYTALE_SERVER_SESSION_TOKEN:-}" ]]; then
+        log_info "Using session tokens from environment variables"
+        return 0
+    fi
+    
+    # Try to acquire tokens using stored OAuth credentials
+    if "${SCRIPT_DIR}/token-manager.sh" acquire > /dev/null 2>&1; then
+        log_info "Session tokens acquired from stored credentials"
+        
+        # Source the exported tokens
+        eval "$("${SCRIPT_DIR}/token-manager.sh" export 2>/dev/null)" || true
+        return 0
+    fi
+    
+    log_info "No stored credentials found - device authorization will be required"
+    return 1
+}
+
+# =============================================================================
 # Configuration
 # =============================================================================
 
@@ -337,20 +364,30 @@ start_server() {
                 fi
                 
                 # Trigger auth if needed (only once, and only after server boot)
+                # We use our own device auth flow to capture and store tokens
                 if [[ "$auth_triggered" == "false" && "$server_booted" == "true" ]] && grep -Eq "Server session token not available|No server tokens configured" "$latest_log" 2>/dev/null; then
-                    log_info "Server requires authentication. Auto-triggering /auth login device..."
-                    sleep 1  # Small delay to ensure server is ready for commands
-                    echo "/auth login device" > "$INPUT_PIPE"
+                    log_info "Server requires authentication."
+                    log_info "Starting device authorization flow (tokens will be saved for future restarts)..."
                     auth_triggered=true
                     auth_trigger_time=$(date +%s)
+                    
+                    # Run our device auth flow in a subshell
+                    # This will poll for user authorization and save tokens
+                    (
+                        if "${SCRIPT_DIR}/token-manager.sh" auth; then
+                            log_info "Authentication complete! Tokens saved."
+                            log_info "Restarting server to apply new tokens..."
+                            # Kill the server so it restarts with tokens
+                            kill -SIGTERM "$SERVER_PID" 2>/dev/null || true
+                        else
+                            log_error "Authentication failed. Please try again."
+                        fi
+                    ) &
                 fi
                 
-                # Log info about persistence limitation in Docker
+                # Check if server is now authenticated (either via our flow or manual)
                 if [[ "$persistence_set" == "false" ]] && grep -Eq "Authentication successful" "$latest_log" 2>/dev/null; then
-                    log_info "Auth successful!"
-                    log_warn "Note: Encrypted credential storage is not available in Docker containers."
-                    log_warn "Credentials will be stored in memory only and lost on restart."
-                    log_warn "For persistent auth, use HYTALE_SERVER_SESSION_TOKEN and HYTALE_SERVER_IDENTITY_TOKEN environment variables."
+                    log_info "Server authenticated successfully!"
                     persistence_set=true
                 fi
             fi
@@ -360,12 +397,19 @@ start_server() {
                 local now
                 now=$(date +%s)
                 if (( now - auth_trigger_time >= AUTO_AUTH_TRIGGER_DELAY )); then
-                    log_info "Startup auth fallback: triggering /auth login device..."
-                    sleep 1
-                    echo "/auth login device" > "$INPUT_PIPE"
+                    log_info "Startup auth fallback: triggering device auth flow..."
                     startup_auth_sent=true
                     auth_triggered=true
                     auth_trigger_time=$now
+                    
+                    # Run our device auth flow
+                    (
+                        if "${SCRIPT_DIR}/token-manager.sh" auth; then
+                            log_info "Authentication complete! Tokens saved."
+                            log_info "Restarting server to apply new tokens..."
+                            kill -SIGTERM "$SERVER_PID" 2>/dev/null || true
+                        fi
+                    ) &
                 fi
             fi
 
@@ -396,10 +440,14 @@ main() {
     # Phase 1: Download server files (via Hytale CLI)
     download_server
     
-    # Phase 2: Generate configuration (optional - Hytale uses its own config)
+    # Phase 2: Try to acquire session tokens from stored OAuth credentials
+    # This enables persistent auth across restarts without re-authorization
+    acquire_session_tokens || true
+    
+    # Phase 3: Generate configuration (optional - Hytale uses its own config)
     # generate_configuration
     
-    # Phase 3: Start server
+    # Phase 4: Start server
     start_server
 }
 
