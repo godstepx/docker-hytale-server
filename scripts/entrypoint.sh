@@ -58,9 +58,12 @@ readonly VERSION_FILE="${DATA_DIR}/.version"
 readonly SERVER_LOG_DIR="${SERVER_DIR}/logs"
 readonly AUTO_AUTH_DEVICE_ON_START="${AUTO_AUTH_DEVICE_ON_START:-true}"
 readonly AUTO_AUTH_TRIGGER_DELAY="${AUTO_AUTH_TRIGGER_DELAY:-5}"
+readonly PGID_FILE="${DATA_DIR}/server.pid.pgid"
 
-# Server process PID
+# Server process PID and tracking
 SERVER_PID=""
+SERVER_PGID=""
+TOKENS_LOADED=false
 
 # =============================================================================
 # Version Info
@@ -81,26 +84,49 @@ load_version_info() {
 cleanup() {
     log_info "Received shutdown signal..."
     
-    if [[ -n "$SERVER_PID" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
-        log_info "Stopping server gracefully (PID: $SERVER_PID)..."
-        kill -SIGTERM "$SERVER_PID" 2>/dev/null || true
+    # Find the Java process directly
+    local java_pid
+    java_pid=$(pgrep -f "HytaleServer.jar" 2>/dev/null | head -n1) || true
+    
+    # Prefer killing by PGID if available (kills entire pipeline)
+    if [[ -n "$SERVER_PGID" && "$SERVER_PGID" != "0" ]]; then
+        log_info "Stopping server gracefully (PGID: $SERVER_PGID, Java PID: $java_pid)..."
+        kill -TERM -"$SERVER_PGID" 2>/dev/null || true
         
         # Wait for graceful shutdown (max 30 seconds)
         local timeout=30
         local count=0
-        while kill -0 "$SERVER_PID" 2>/dev/null && [[ $count -lt $timeout ]]; do
+        while pgrep -f "HytaleServer.jar" >/dev/null 2>&1 && [[ $count -lt $timeout ]]; do
             sleep 1
             ((count++))
         done
         
         # Force kill if still running
-        if kill -0 "$SERVER_PID" 2>/dev/null; then
+        if pgrep -f "HytaleServer.jar" >/dev/null 2>&1; then
             log_warn "Server did not stop gracefully, forcing..."
-            kill -SIGKILL "$SERVER_PID" 2>/dev/null || true
+            kill -KILL -"$SERVER_PGID" 2>/dev/null || true
+            pkill -KILL -f "HytaleServer.jar" 2>/dev/null || true
+        fi
+    elif [[ -n "$java_pid" ]]; then
+        log_info "Stopping server gracefully (Java PID: $java_pid)..."
+        kill -TERM "$java_pid" 2>/dev/null || true
+        
+        # Wait for graceful shutdown (max 30 seconds)
+        local timeout=30
+        local count=0
+        while pgrep -f "HytaleServer.jar" >/dev/null 2>&1 && [[ $count -lt $timeout ]]; do
+            sleep 1
+            ((count++))
+        done
+        
+        # Force kill if still running
+        if pgrep -f "HytaleServer.jar" >/dev/null 2>&1; then
+            log_warn "Server did not stop gracefully, forcing..."
+            pkill -KILL -f "HytaleServer.jar" 2>/dev/null || true
         fi
     fi
     
-    rm -f "$PID_FILE"
+    rm -f "$PID_FILE" "$PGID_FILE"
     log_info "Shutdown complete"
     exit 0
 }
@@ -122,25 +148,140 @@ download_server() {
 
 # Try to acquire session tokens from stored OAuth tokens
 acquire_session_tokens() {
-    log_info "Checking for stored authentication tokens..."
+    log_info "Checking stored tokens..."
     
     # Skip if tokens already provided via environment
     if [[ -n "${HYTALE_SERVER_SESSION_TOKEN:-}" ]]; then
-        log_info "Using session tokens from environment variables"
+        log_info "[TOKEN] Using session tokens from environment variables"
+        TOKENS_LOADED=true
         return 0
     fi
     
-    # Try to acquire tokens using stored OAuth credentials
+    # Check if token-manager can acquire tokens
+    log_info "[TOKEN] Attempting to load stored credentials..."
     if "${SCRIPT_DIR}/token-manager.sh" acquire > /dev/null 2>&1; then
-        log_info "Session tokens acquired from stored credentials"
+        log_info "[TOKEN] Tokens loaded from stored credentials"
         
         # Source the exported tokens
-        eval "$("${SCRIPT_DIR}/token-manager.sh" export 2>/dev/null)" || true
-        return 0
+        if eval "$("${SCRIPT_DIR}/token-manager.sh" export 2>/dev/null)"; then
+            log_info "[TOKEN] Session token: ${HYTALE_SERVER_SESSION_TOKEN:0:20}..."
+            TOKENS_LOADED=true
+            return 0
+        fi
     fi
     
-    log_info "No stored credentials found - device authorization will be required"
+    # No stored credentials - start device auth flow if auto-auth is enabled
+    # This prevents the server from starting without tokens and immediately crashing
+    if [[ "${AUTO_AUTH_DEVICE_ON_START:-false}" == "true" ]]; then
+        log_info "[TOKEN] No stored credentials - starting device auth flow before server start..."
+        if "${SCRIPT_DIR}/token-manager.sh" auth; then
+            log_info "[TOKEN] Device auth completed! Loading acquired tokens..."
+            if eval "$("${SCRIPT_DIR}/token-manager.sh" export 2>/dev/null)"; then
+                log_info "[TOKEN] Session token: ${HYTALE_SERVER_SESSION_TOKEN:0:20}..."
+                TOKENS_LOADED=true
+                return 0
+            fi
+        else
+            log_warn "[TOKEN] Device auth flow failed or timed out"
+        fi
+    else
+        log_info "[TOKEN] No stored credentials found - device authorization will be required"
+    fi
+    
+    TOKENS_LOADED=false
     return 1
+}
+
+# =============================================================================
+# Background Token Refresh Loop
+# =============================================================================
+# The session and OAuth tokens expire after ~1 hour. This background process
+# monitors token expiry and refreshes them proactively to prevent player
+# connection issues. If refresh fails, the server restarts to trigger new auth.
+
+start_token_refresh_loop() {
+    (
+        local TOKEN_CHECK_INTERVAL=300  # Check every 5 minutes
+        local REFRESH_BUFFER=600        # Refresh 10 minutes before expiry
+        
+        log_info "[TOKEN_REFRESH] Background token refresh started (check every ${TOKEN_CHECK_INTERVAL}s)"
+        
+        # Wait for server to be fully started
+        sleep 30
+        
+        while true; do
+            # Check if server is still running
+            if ! pgrep -f "HytaleServer.jar" >/dev/null 2>&1; then
+                log_info "[TOKEN_REFRESH] Server stopped, exiting refresh loop"
+                break
+            fi
+            
+            # Check token expiry
+            local expires_at=""
+            if [[ -f "${AUTH_CACHE:-/data/.auth}/server-tokens.json" ]]; then
+                expires_at=$(jq -r '.expires_at // empty' "${AUTH_CACHE:-/data/.auth}/server-tokens.json" 2>/dev/null)
+            fi
+            
+            if [[ -n "$expires_at" ]]; then
+                local expires_epoch now_epoch time_left
+                expires_epoch=$(date -d "$expires_at" +%s 2>/dev/null || echo 0)
+                now_epoch=$(date +%s)
+                time_left=$((expires_epoch - now_epoch))
+                
+                if (( time_left <= REFRESH_BUFFER )); then
+                    log_info "[TOKEN_REFRESH] Token expires in ${time_left}s, refreshing..."
+                    
+                    # Try to refresh tokens
+                    if "${SCRIPT_DIR}/token-manager.sh" acquire >/dev/null 2>&1; then
+                        log_info "[TOKEN_REFRESH] Tokens refreshed successfully"
+                        
+                        # Check if the new tokens are valid
+                        local new_expires_at
+                        new_expires_at=$(jq -r '.expires_at // empty' "${AUTH_CACHE:-/data/.auth}/server-tokens.json" 2>/dev/null)
+                        local new_expires_epoch
+                        new_expires_epoch=$(date -d "$new_expires_at" +%s 2>/dev/null || echo 0)
+                        
+                        if (( new_expires_epoch > now_epoch + REFRESH_BUFFER )); then
+                            log_info "[TOKEN_REFRESH] New token expires at: $new_expires_at"
+                        else
+                            log_warn "[TOKEN_REFRESH] Token refresh returned near-expiry token, forcing server restart"
+                            trigger_server_restart
+                            break
+                        fi
+                    else
+                        log_error "[TOKEN_REFRESH] Failed to refresh tokens!"
+                        log_info "[TOKEN_REFRESH] Triggering server restart for re-authentication..."
+                        trigger_server_restart
+                        break
+                    fi
+                else
+                    local hours=$((time_left / 3600))
+                    local mins=$(((time_left % 3600) / 60))
+                    log_debug "[TOKEN_REFRESH] Token valid for ${hours}h ${mins}m"
+                fi
+            fi
+            
+            sleep "$TOKEN_CHECK_INTERVAL"
+        done
+    ) &
+}
+
+# Trigger server restart (used by token refresh loop)
+trigger_server_restart() {
+    local pgid
+    pgid=$(cat "${PGID_FILE:-/data/server.pid.pgid}" 2>/dev/null | tr -d '-') || true
+    
+    if [[ -n "$pgid" && "$pgid" != "0" ]]; then
+        log_info "[TOKEN_REFRESH] Killing process group PGID=$pgid..."
+        kill -TERM -"$pgid" 2>/dev/null || true
+        sleep 2
+        kill -KILL -"$pgid" 2>/dev/null || true
+    else
+        log_info "[TOKEN_REFRESH] Killing Java process..."
+        pkill -TERM -f "HytaleServer.jar" 2>/dev/null || true
+        sleep 2
+        pkill -KILL -f "HytaleServer.jar" 2>/dev/null || true
+    fi
 }
 
 # =============================================================================
@@ -298,21 +439,41 @@ start_server() {
     : > "$SERVER_OUTPUT_LOG"  # Truncate/create the log file
     
     # Start server with proper process tracking
-    # We use a wrapper script approach to capture all PIDs
     cd "$DATA_DIR"
     
     # Start the pipeline in a way we can kill all processes
-    # Using process substitution and exec to get the Java PID
-    (
-        exec tail -f "$INPUT_PIPE" | java $java_args 2>&1 | tee -a "$SERVER_OUTPUT_LOG"
-    ) &
+    # Use setsid to create a new session and process group
+    setsid bash -c "tail -f '$INPUT_PIPE' | java $java_args 2>&1 | tee -a '$SERVER_OUTPUT_LOG'" &
     SERVER_PID=$!
     
-    # Also save the process group ID for reliable killing
+    # Give the setsid'd process time to spawn children
+    sleep 2
+    
+    # Get the PGID - with setsid, the new session leader's PID equals its PGID
+    # First try to find the actual Java process
+    local java_pid
+    java_pid=$(pgrep -f "HytaleServer.jar" 2>/dev/null | head -n1) || true
+    
+    if [[ -n "$java_pid" ]]; then
+        SERVER_PGID=$(ps -o pgid= -p "$java_pid" 2>/dev/null | tr -d ' ') || true
+        log_info "Found Java process PID: $java_pid, PGID: $SERVER_PGID"
+    fi
+    
+    # Fallback: the setsid process itself becomes the session leader
+    if [[ -z "$SERVER_PGID" ]]; then
+        SERVER_PGID=$SERVER_PID
+        log_info "Using setsid PID as PGID: $SERVER_PGID"
+    fi
+    
+    # Save PID and PGID files
     echo "$SERVER_PID" > "$PID_FILE"
-    # Store PGID (same as PID for group leader) for killing all related processes
-    echo "-$SERVER_PID" > "${PID_FILE}.pgid"
-    log_info "Server started with PID: $SERVER_PID"
+    echo "$SERVER_PGID" > "$PGID_FILE"
+    
+    log_info "Server started with PID: $SERVER_PID, PGID: $SERVER_PGID"
+    log_info "[TOKEN] Tokens loaded before start: $TOKENS_LOADED"
+
+    # Export TOKENS_LOADED for subshell access
+    export TOKENS_LOADED
 
     # Background monitor for auth requirements and persistence
     (
@@ -322,6 +483,7 @@ start_server() {
         auth_trigger_time=$(date +%s)
         local startup_auth_sent=false
         local server_booted=false
+        local tokens_preloaded="${TOKENS_LOADED:-false}"
         
         # The log file we're monitoring (created by tee above)
         local SERVER_OUTPUT_LOG="${LOG_DIR}/server-output.log"
@@ -385,24 +547,27 @@ start_server() {
                     (
                         if "${SCRIPT_DIR}/token-manager.sh" auth; then
                             log_info "Authentication complete! Tokens saved."
-                            log_info "Restarting server to apply new tokens..."
-                            # Kill the entire process group to stop all pipeline processes
+                            log_info "[RESTART] Restarting server to apply new tokens..."
+                            
+                            # Kill the entire process group using negative PGID
                             local pgid
-                            pgid=$(cat "/data/server.pid.pgid" 2>/dev/null)
-                            if [[ -n "$pgid" ]]; then
-                                log_info "Killing process group $pgid..."
-                                kill -SIGTERM $pgid 2>/dev/null || true
-                                # Also try pkill for java processes owned by hytale user
-                                pkill -SIGTERM -f "HytaleServer.jar" 2>/dev/null || true
+                            pgid=$(cat "/data/server.pid.pgid" 2>/dev/null | tr -d '-')
+                            if [[ -n "$pgid" && "$pgid" != "0" ]]; then
+                                log_info "[RESTART] Killing process group PGID=$pgid..."
+                                kill -TERM -"$pgid" 2>/dev/null || true
+                                sleep 1
+                                # Force kill if still running
+                                kill -KILL -"$pgid" 2>/dev/null || true
                             else
-                                # Fallback: kill by PID and also java process
+                                # Fallback: kill by PID
                                 local pid
                                 pid=$(cat "/data/server.pid" 2>/dev/null)
                                 if [[ -n "$pid" ]]; then
-                                    log_info "Killing PID $pid and Java process..."
-                                    kill -SIGTERM "$pid" 2>/dev/null || true
+                                    log_info "[RESTART] Fallback: killing PID=$pid..."
+                                    kill -TERM "$pid" 2>/dev/null || true
                                 fi
-                                pkill -SIGTERM -f "HytaleServer.jar" 2>/dev/null || true
+                                # Last resort: pkill
+                                pkill -TERM -f "HytaleServer.jar" 2>/dev/null || true
                             fi
                         else
                             log_error "Authentication failed. Please try again."
@@ -418,6 +583,13 @@ start_server() {
             fi
             
             # Startup fallback: if server booted but no auth triggered yet
+            # Skip if tokens were loaded before startup
+            if [[ "$tokens_preloaded" == "true" ]]; then
+                # Tokens were loaded before start, no auth flow needed
+                auth_triggered=true
+                startup_auth_sent=true
+            fi
+            
             if [[ "$AUTO_AUTH_DEVICE_ON_START" == "true" && "$auth_triggered" == "false" && "$startup_auth_sent" == "false" && "$server_booted" == "true" ]]; then
                 local now
                 now=$(date +%s)
@@ -431,21 +603,24 @@ start_server() {
                     (
                         if "${SCRIPT_DIR}/token-manager.sh" auth; then
                             log_info "Authentication complete! Tokens saved."
-                            log_info "Restarting server to apply new tokens..."
-                            # Kill the entire process group
+                            log_info "[RESTART] Restarting server to apply new tokens..."
+                            
+                            # Kill the entire process group using negative PGID
                             local pgid
-                            pgid=$(cat "/data/server.pid.pgid" 2>/dev/null)
-                            if [[ -n "$pgid" ]]; then
-                                log_info "Killing process group $pgid..."
-                                kill -SIGTERM $pgid 2>/dev/null || true
-                                pkill -SIGTERM -f "HytaleServer.jar" 2>/dev/null || true
+                            pgid=$(cat "/data/server.pid.pgid" 2>/dev/null | tr -d '-')
+                            if [[ -n "$pgid" && "$pgid" != "0" ]]; then
+                                log_info "[RESTART] Killing process group PGID=$pgid..."
+                                kill -TERM -"$pgid" 2>/dev/null || true
+                                sleep 1
+                                kill -KILL -"$pgid" 2>/dev/null || true
                             else
                                 local pid
                                 pid=$(cat "/data/server.pid" 2>/dev/null)
                                 if [[ -n "$pid" ]]; then
-                                    kill -SIGTERM "$pid" 2>/dev/null || true
+                                    log_info "[RESTART] Fallback: killing PID=$pid..."
+                                    kill -TERM "$pid" 2>/dev/null || true
                                 fi
-                                pkill -SIGTERM -f "HytaleServer.jar" 2>/dev/null || true
+                                pkill -TERM -f "HytaleServer.jar" 2>/dev/null || true
                             fi
                         fi
                     ) &
@@ -456,11 +631,35 @@ start_server() {
         done
     ) &
     
-    # Wait for server process
-    wait "$SERVER_PID"
-    local exit_code=$?
+    # Start background token refresh loop
+    # This refreshes tokens before they expire to keep the server running long-term
+    start_token_refresh_loop
     
-    rm -f "$PID_FILE"
+    # With setsid, the original process exits immediately while children continue
+    # We need to wait for the actual Java process to exit
+    log_info "Waiting for server process (PGID: $SERVER_PGID)..."
+    
+    # Poll for Java process - when it exits, we should exit too
+    while true; do
+        local java_pid
+        java_pid=$(pgrep -f "HytaleServer.jar" 2>/dev/null | head -n1) || true
+        
+        if [[ -z "$java_pid" ]]; then
+            # Java is gone - check if it was a clean exit or crash
+            sleep 1
+            # Double check
+            java_pid=$(pgrep -f "HytaleServer.jar" 2>/dev/null | head -n1) || true
+            if [[ -z "$java_pid" ]]; then
+                log_info "Server process has exited."
+                break
+            fi
+        fi
+        
+        sleep 5
+    done
+    
+    local exit_code=0
+    rm -f "$PID_FILE" "$PGID_FILE"
     log_info "Server exited with code: $exit_code"
     exit $exit_code
 }
