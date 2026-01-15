@@ -434,7 +434,7 @@ async function downloadServerFiles(): Promise<void> {
     }
 
     const extractedServerDir = resolvePath(DATA_DIR, "Server");
-    const serverJar = resolvePath(SERVER_DIR, "HytaleServer.jar");
+    const serverJar = DATA_SERVER_JAR;
 
     if (existsSync(serverJar)) {
       // Files already in correct location (case-insensitive filesystem extracted to server/)

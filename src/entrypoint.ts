@@ -18,7 +18,13 @@ import { Subprocess } from "bun";
 import { readdirSync, statSync, unlinkSync } from "fs";
 import { join } from "path";
 import { logInfo, logWarn, logError, logDebug, logBanner, fatal } from "./log-utils.ts";
-import { downloadServer, buildJavaArgs, validateServerFiles, setupDirectories } from "./setup.ts";
+import {
+  downloadServer,
+  ensureReadOnlyServerJar,
+  buildJavaArgs,
+  validateServerFiles,
+  setupDirectories,
+} from "./setup.ts";
 import { writeConfigFiles } from "./config-writer.ts";
 import { installCurseForgeMods } from "./mod-installer.ts";
 import { runDiagnostics } from "./diagnostics.ts";
@@ -203,13 +209,16 @@ async function main(): Promise<void> {
   logInfo("Ensuring server files...");
   await downloadServer();
 
-  // Phase 5: Validate files exist
+  // Phase 5: Copy server JAR to read-only location
+  ensureReadOnlyServerJar();
+
+  // Phase 6: Validate files exist
   validateServerFiles();
 
-  // Phase 6: Install mods (if configured)
+  // Phase 7: Install mods (if configured)
   await installCurseForgeMods();
 
-  // Phase 7: Acquire session tokens
+  // Phase 8: Acquire session tokens
   logInfo("Acquiring session tokens...");
   const sessionTokens = await acquireSessionTokens();
 
@@ -223,7 +232,7 @@ async function main(): Promise<void> {
     logWarn("Use '/auth login device' in server console to authenticate");
   }
 
-  // Phase 8: Build Java command
+  // Phase 9: Build Java command
   const javaArgs = buildJavaArgs(sessionTokens);
 
   if (DRY_RUN) {
@@ -232,11 +241,11 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  // Phase 9: Start background tasks
+  // Phase 10: Start background tasks
   startOAuthRefreshLoop(); // Keeps refresh token alive for 30+ day runs
   startLogCleanupLoop(); // Daily log cleanup
 
-  // Phase 10: Start Java server
+  // Phase 11: Start Java server
   logInfo("Starting Hytale server...");
 
   javaProcess = Bun.spawn(["java", ...javaArgs], {
