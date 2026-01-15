@@ -1,6 +1,14 @@
 # Hytale Server Docker Image
 
-🐳 Docker image for self-hosting Hytale Dedicated Servers. 
+[![GitHub stars](https://img.shields.io/github/stars/godstepx/docker-hytale-server?style=for-the-badge)](https://github.com/godstepx/docker-hytale-server)
+[![GitHub last commit](https://img.shields.io/github/last-commit/godstepx/docker-hytale-server?style=for-the-badge)](https://github.com/godstepx/docker-hytale-server)
+[![License](https://img.shields.io/github/license/godstepx/docker-hytale-server?style=for-the-badge)](https://github.com/godstepx/docker-hytale-server/blob/main/LICENSE)
+[![GHCR pulls](https://img.shields.io/ghcr/pulls/godstepx/docker-hytale-server?style=for-the-badge)](https://github.com/godstepx/docker-hytale-server/pkgs/container/docker-hytale-server)
+[![GHCR image size](https://img.shields.io/ghcr/image-size/godstepx/docker-hytale-server/latest?style=for-the-badge)](https://github.com/godstepx/docker-hytale-server/pkgs/container/docker-hytale-server)
+
+![Hybuild](assets/hybuild.png)
+
+🐳 Docker image for self-hosting Hytale Dedicated Servers with OAuth handling, flexible download modes, and easy configuration.
 
 > [!TIP]
 > **New to Hytale hosting?** Use our web-based config generator: [setuphytale.com](https://setuphytale.com)
@@ -26,6 +34,9 @@ services:
     environment:
       JAVA_XMX: "4G"
       JAVA_XMS: "1G"
+    # Required for interactive auth prompts and CLI progress output
+    stdin_open: true
+    tty: true
 ```
 
 ### 2. First Start (Authentication Required)
@@ -59,6 +70,18 @@ docker compose up -d
 ```bash
 docker logs -f hytale-server
 ```
+
+---
+
+## Features
+
+- **OAuth Device Flow** - Browser-based auth on first run with token persistence
+- **Flexible Downloads** - `auto`, `cli`, `launcher`, or `manual` modes
+- **Bundled CLI** - Pre-bundled Hytale Downloader CLI in the image
+- **Config Generation** - `config.json` and `whitelist.json` from env vars
+- **CurseForge Mods** - Optional auto-install with cache support
+- **Graceful Shutdown** - Handles `SIGTERM` and shuts down cleanly
+- **Health Checks** - Built-in container health check
 
 ---
 
@@ -191,6 +214,7 @@ Set `DIAGNOSTICS=true` to run basic startup checks for port validity, `/tmp` wri
 | `CONTAINER_LOG_LEVEL` | `INFO` | Container log level: `DEBUG`, `INFO`, `WARN`, `ERROR` |
 | `DRY_RUN` | `false` | Simulate startup without actually running the server |
 | `DIAGNOSTICS` | `false` | Run basic startup diagnostics (port validity, /tmp writable, memory limit, UDP buffer) |
+| `NO_COLOR` | `false` | Disable colored log output |
 | `DATA_DIR` | `/data` | Base directory for all server data |
 
 ### Server Command-Line Flags
