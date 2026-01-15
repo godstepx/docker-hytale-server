@@ -10,7 +10,8 @@
  * This module is imported by entrypoint.ts for the main server flow.
  */
 
-import { existsSync, mkdirSync } from "fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, unlinkSync } from "fs";
+import { dirname } from "path";
 import { logInfo, logWarn, fatal } from "./log-utils.ts";
 import { ensureServerFiles } from "./download.ts";
 import type { SessionTokens } from "./token-manager.ts";
@@ -18,6 +19,7 @@ import {
   DATA_DIR,
   SERVER_DIR,
   SERVER_JAR,
+  DATA_SERVER_JAR,
   ASSETS_FILE,
   LOG_DIR,
   AOT_CACHE,
@@ -56,6 +58,27 @@ export async function downloadServer(): Promise<void> {
     await ensureServerFiles();
   } catch (error) {
     fatal("Server file download failed", error);
+  }
+}
+
+/**
+ * Copy the server JAR to a read-only location for integrity
+ */
+export function ensureReadOnlyServerJar(): void {
+  if (!existsSync(DATA_SERVER_JAR)) {
+    fatal(`Server JAR not found in data directory: ${DATA_SERVER_JAR}`);
+  }
+
+  try {
+    mkdirSync(dirname(SERVER_JAR), { recursive: true });
+    if (existsSync(SERVER_JAR)) {
+      unlinkSync(SERVER_JAR);
+    }
+    copyFileSync(DATA_SERVER_JAR, SERVER_JAR);
+    chmodSync(SERVER_JAR, 0o444);
+    logInfo(`Prepared read-only server JAR at ${SERVER_JAR}`);
+  } catch (error) {
+    fatal(`Failed to prepare read-only server JAR: ${error}`);
   }
 }
 

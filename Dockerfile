@@ -129,8 +129,8 @@ COPY --from=builder --chmod=755 /build/dist/healthcheck /opt/hytale/bin/healthch
 COPY --from=cli-downloader --chmod=755 /cli/ /opt/hytale/cli/
 
 # Create data directory with correct permissions
-RUN mkdir -p /data /data/logs /data/backups \
-    && chown -R hytale:hytale /data /opt/hytale
+RUN mkdir -p /data /data/logs /data/backups /usr/local/lib/hytale \
+    && chown -R hytale:hytale /data /opt/hytale /usr/local/lib/hytale
 
 # Expose UDP port (QUIC)
 EXPOSE 5520/udp
