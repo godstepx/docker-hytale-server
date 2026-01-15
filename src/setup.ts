@@ -11,7 +11,7 @@
  */
 
 import { existsSync, mkdirSync } from "fs";
-import { logInfo, logWarn, die } from "./log-utils.ts";
+import { logInfo, logWarn, fatal } from "./log-utils.ts";
 import { ensureServerFiles } from "./download.ts";
 import type { SessionTokens } from "./token-manager.ts";
 import {
@@ -55,7 +55,7 @@ export async function downloadServer(): Promise<void> {
   try {
     await ensureServerFiles();
   } catch (error) {
-    die(`Server file download failed: ${error}`);
+    fatal("Server file download failed", error);
   }
 }
 
@@ -118,10 +118,12 @@ export function buildJavaArgs(sessionTokens: SessionTokens | null): string[] {
     "-XX:MaxTenuringThreshold=1"
   );
 
-  // Extra JVM options from environment
+  // Allow native access used by Netty to avoid Java warnings
+  args.push("--enable-native-access=ALL-UNNAMED");
+
+  // Extra JVM options from environment (supports quoted args)
   if (JAVA_OPTS) {
-    const extraOpts = JAVA_OPTS.split(" ").filter((opt) => opt.trim().length > 0);
-    args.push(...extraOpts);
+    args.push(...parseJavaOpts(JAVA_OPTS));
   }
 
   // JAR file
@@ -232,16 +234,85 @@ export function buildJavaArgs(sessionTokens: SessionTokens | null): string[] {
   return args;
 }
 
+function parseJavaOpts(value: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let inSingle = false;
+  let inDouble = false;
+  let escape = false;
+
+  for (const char of value) {
+    if (escape) {
+      current += char;
+      escape = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      escape = true;
+      continue;
+    }
+
+    if (inSingle) {
+      if (char === "'") {
+        inSingle = false;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+
+    if (inDouble) {
+      if (char === '"') {
+        inDouble = false;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+
+    if (char === "'") {
+      inSingle = true;
+      continue;
+    }
+
+    if (char === '"') {
+      inDouble = true;
+      continue;
+    }
+
+    if (/\s/.test(char)) {
+      if (current.length > 0) {
+        result.push(current);
+        current = "";
+      }
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (escape) {
+    current += "\\";
+  }
+
+  if (current.length > 0) {
+    result.push(current);
+  }
+
+  return result;
+}
+
 /**
  * Validate server files exist
  */
 export function validateServerFiles(): void {
   if (!existsSync(SERVER_JAR)) {
-    die(`Server JAR not found: ${SERVER_JAR}`);
+    fatal(`Server JAR not found: ${SERVER_JAR}`);
   }
 
   if (!existsSync(ASSETS_FILE)) {
-    die(`Assets file not found: ${ASSETS_FILE}`);
+    fatal(`Assets file not found: ${ASSETS_FILE}`);
   }
 }
 

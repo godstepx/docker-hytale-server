@@ -27,6 +27,16 @@ function getEnvInt(key: string, defaultValue: number): number {
   return isNaN(parsed) ? defaultValue : parsed;
 }
 
+function getEnvPort(key: string, defaultValue: number): number {
+  const value = process.env[key];
+  if (value === undefined || value === "") return defaultValue;
+  const parsed = parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+    throw new Error(`${key} must be a number between 1 and 65535`);
+  }
+  return parsed;
+}
+
 /**
  * Check if an environment variable is explicitly set (not relying on default)
  */
@@ -49,7 +59,8 @@ export const AUTH_CACHE = resolve(DATA_DIR, ".auth");
 export const LOG_DIR = resolve(DATA_DIR, "logs");
 
 // File paths
-export const SERVER_JAR = resolve(SERVER_DIR, "HytaleServer.jar");
+export const DATA_SERVER_JAR = resolve(SERVER_DIR, "HytaleServer.jar");
+export const SERVER_JAR = resolve("c", "HytaleServer.jar");
 export const ASSETS_FILE = resolve(DATA_DIR, "Assets.zip");
 export const VERSION_FILE = resolve(DATA_DIR, ".version");
 export const AOT_CACHE = resolve(SERVER_DIR, "HytaleServer.aot");
@@ -86,7 +97,7 @@ export const ENABLE_AOT_CACHE = getEnvBool("ENABLE_AOT_CACHE", true);
 // Server Configuration
 // =============================================================================
 
-export const SERVER_PORT = getEnv("SERVER_PORT", "5520");
+export const SERVER_PORT = getEnvPort("SERVER_PORT", 5520);
 export const BIND_ADDRESS = getEnv("BIND_ADDRESS", "0.0.0.0");
 export const AUTH_MODE = getEnv("AUTH_MODE", "authenticated");
 
@@ -160,6 +171,7 @@ export const CONTAINER_LOG_LEVEL = getEnv("CONTAINER_LOG_LEVEL", "INFO").toUpper
 // =============================================================================
 
 export const DRY_RUN = getEnvBool("DRY_RUN", false);
+export const DIAGNOSTICS = getEnvBool("DIAGNOSTICS", false);
 export const TZ = getEnv("TZ", "UTC");
 
 // =============================================================================
