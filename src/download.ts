@@ -39,6 +39,8 @@ import {
   DRY_RUN,
 } from "./config.ts";
 
+const CLI_CREDENTIALS_PATH = resolvePath(AUTH_CACHE, "credentials.json");
+
 /**
  * Calculate exponential backoff with jitter
  */
@@ -75,8 +77,7 @@ function clearCliCache(): void {
  */
 function buildCliArgs(args: string[]): string[] {
   // Always specify credentials path to persist auth in the volume
-  const credentialsPath = resolvePath(AUTH_CACHE, "credentials.json");
-  const fullArgs = ["-credentials-path", credentialsPath, ...args];
+  const fullArgs = ["-credentials-path", CLI_CREDENTIALS_PATH, ...args];
 
   if (SKIP_CLI_UPDATE_CHECK) {
     fullArgs.push("-skip-update-check");
@@ -113,6 +114,16 @@ async function runCliAsync(args: string[]): Promise<number> {
     stdin: "inherit",
   });
   return await proc.exited;
+}
+
+async function checkCliLoggedIn(): Promise<boolean> {
+  logInfo("Checking CLI authentication status...");
+  const exitCode = await runCliAsync(["-print-version"]);
+  if (exitCode !== 0) {
+    logWarn(`CLI auth check failed (exit ${exitCode})`);
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -237,40 +248,36 @@ async function ensureCli(): Promise<void> {
 /**
  * Check if existing server files are present
  */
-function checkExistingFiles(): boolean {
+function hasExistingFiles(): boolean {
   const serverJar = resolvePath(SERVER_DIR, "HytaleServer.jar");
+  return existsSync(serverJar) && existsSync(ASSETS_FILE);
+}
 
-  if (existsSync(serverJar) && existsSync(ASSETS_FILE)) {
-    logInfo("Server files already exist");
+async function checkForUpdates(): Promise<boolean> {
+  if (!CHECK_UPDATES) return false;
 
-    if (FORCE_DOWNLOAD) {
-      logInfo("FORCE_DOWNLOAD=true, re-downloading...");
+  logInfo("Checking for updates...");
+  try {
+    const loggedIn = await checkCliLoggedIn();
+    if (!loggedIn) return false;
+    const result = runCliSync(["-print-version"]);
+    if (result.exitCode !== 0) return false;
+
+    const latestVersion = result.stdout;
+    const installedVersion = getInstalledVersion();
+
+    if (installedVersion === "unknown") {
+      logInfo(`Latest version: ${latestVersion} (installed version unknown)`);
+      return true;
+    } else if (latestVersion === installedVersion) {
+      logInfo(`Server is up to date (${installedVersion})`);
       return false;
+    } else {
+      logWarn(`Update available: ${installedVersion} -> ${latestVersion}`);
+      return true;
     }
-
-    if (CHECK_UPDATES) {
-      logInfo("Checking for updates...");
-      try {
-        const result = runCliSync(["-print-version"]);
-        if (result.exitCode === 0) {
-          const latestVersion = result.stdout;
-          const installedVersion = getInstalledVersion();
-
-          if (installedVersion === "unknown") {
-            logInfo(`Latest version: ${latestVersion} (installed version unknown)`);
-          } else if (latestVersion === installedVersion) {
-            logInfo(`Server is up to date (${installedVersion})`);
-          } else {
-            logWarn(`Update available: ${installedVersion} -> ${latestVersion}`);
-            logInfo("Set FORCE_DOWNLOAD=true to update");
-          }
-        }
-      } catch (error) {
-        logDebug(`Failed to check version: ${error}`);
-      }
-    }
-
-    return true;
+  } catch (error) {
+    logDebug(`Failed to check version: ${error}`);
   }
 
   return false;
@@ -495,12 +502,6 @@ export async function ensureServerFiles(): Promise<void> {
   mkdirSync(DATA_DIR, { recursive: true });
   mkdirSync(SERVER_DIR, { recursive: true });
 
-  // Check if files already exist
-  if (checkExistingFiles()) {
-    logInfo(`Using existing server files (version: ${getInstalledVersion()})`);
-    return;
-  }
-
   // Determine how to obtain files based on mode
   switch (DOWNLOAD_MODE) {
     case "manual":
@@ -516,8 +517,7 @@ export async function ensureServerFiles(): Promise<void> {
       }
 
     case "cli":
-      await ensureCli();
-      await downloadServerFiles();
+      await cliMode();
       break;
 
     case "auto":
@@ -537,15 +537,32 @@ export async function ensureServerFiles(): Promise<void> {
 
       // 2. Try CLI if URL is set
       if (HYTALE_CLI_URL) {
-        logInfo("Trying CLI download...");
-        await ensureCli();
-        await downloadServerFiles();
-        logInfo("Server files ready!");
+        await cliMode();
         return;
       }
 
       // 3. No automatic method available - show instructions
       showManualInstructions();
       die("No automatic download method available. See instructions above.");
+  }
+
+
+  async function cliMode() {
+    await ensureCli();
+
+    // Check if files already exist
+    if (hasExistingFiles()) {
+      logInfo(`Using existing server files (version: ${getInstalledVersion()})`);
+      if (FORCE_DOWNLOAD) {
+        logInfo("FORCE_DOWNLOAD=true, re-downloading...");
+      } else {
+        const shouldDownload = await checkForUpdates();
+        if (!shouldDownload) return;
+        logInfo("Update detected, downloading latest version...");
+      }
+    }
+
+    await downloadServerFiles();
+    logInfo("Server files ready!");
   }
 }
