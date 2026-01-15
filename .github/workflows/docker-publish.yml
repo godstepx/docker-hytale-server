@@ -42,6 +42,7 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value=beta,enable=${{ github.ref == 'refs/heads/beta' }}
             type=ref,event=branch
+            type=ref,event=tag
             type=sha,prefix=sha-
 
       - name: Build and push Docker image
