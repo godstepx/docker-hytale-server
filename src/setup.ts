@@ -14,6 +14,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, unlinkSync } from "fs";
 import { dirname } from "path";
 import { logInfo, logWarn, fatal } from "./log-utils.ts";
 import { ensureServerFiles } from "./download.ts";
+import { getModDir } from "./mod-installer/index.ts";
 import type { SessionTokens } from "./token-manager.ts";
 import {
   DATA_DIR,
@@ -43,8 +44,6 @@ import {
   ADDITIONAL_PLUGINS_DIR,
   SERVER_LOG_LEVEL,
   HYTALE_OWNER_NAME,
-  MOD_INSTALL_MODE,
-  CURSEFORGE_MODS_DIR,
   HYTALE_SERVER_SESSION_TOKEN,
   HYTALE_SERVER_IDENTITY_TOKEN,
   HYTALE_OWNER_UUID,
@@ -210,12 +209,11 @@ export function buildJavaArgs(sessionTokens: SessionTokens | null): string[] {
     logInfo(`Additional mods directory: ${ADDITIONAL_MODS_DIR}`);
   }
 
-  // CurseForge mod install directory (adds a second mods path)
-  if (MOD_INSTALL_MODE !== "off" && CURSEFORGE_MODS_DIR) {
-    if (!ADDITIONAL_MODS_DIR || ADDITIONAL_MODS_DIR !== CURSEFORGE_MODS_DIR) {
-      args.push("--mods", CURSEFORGE_MODS_DIR);
-      logInfo(`CurseForge mods directory: ${CURSEFORGE_MODS_DIR}`);
-    }
+  // Provider mod directory (adds extra --mods path)
+  const modsDir = getModDir();
+  if (modsDir && (!ADDITIONAL_MODS_DIR || ADDITIONAL_MODS_DIR !== modsDir)) {
+    args.push("--mods", modsDir);
+    logInfo(`Mods directory: ${modsDir}`);
   }
 
   // Additional early plugins directory
@@ -346,7 +344,8 @@ export function setupDirectories(): void {
   mkdirSync(DATA_DIR, { recursive: true });
   mkdirSync(SERVER_DIR, { recursive: true });
   mkdirSync(LOG_DIR, { recursive: true });
-  if (MOD_INSTALL_MODE !== "off" && CURSEFORGE_MODS_DIR) {
-    mkdirSync(CURSEFORGE_MODS_DIR, { recursive: true });
+  const modDir = getModDir();
+  if (modDir) {
+    mkdirSync(modDir, { recursive: true });
   }
 }

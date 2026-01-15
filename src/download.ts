@@ -42,6 +42,11 @@ import {
 
 const CLI_CREDENTIALS_PATH = resolvePath(AUTH_CACHE, "credentials.json");
 
+interface DownloadProvider {
+  id: string;
+  ensure: () => Promise<void>;
+}
+
 /**
  * Calculate exponential backoff with jitter
  */
@@ -453,7 +458,7 @@ async function downloadServerFiles(): Promise<void> {
     rmSync(downloadPath, { force: true });
 
     clearServerFilesCache();
-    saveVersionInfo("cli");
+    saveVersionInfo();
     logInfo("Server files ready!");
   } else {
     fatal("Expected game.zip not found after download");
@@ -463,18 +468,17 @@ async function downloadServerFiles(): Promise<void> {
 /**
  * Save version information
  */
-function saveVersionInfo(source: string): void {
+function saveVersionInfo(): void {
   const version = getCliVersionCached();
 
   const versionInfo = {
     version,
-    source,
     patchline: HYTALE_PATCHLINE,
     downloaded_at: new Date().toISOString(),
   };
 
   writeFileSync(VERSION_FILE, JSON.stringify(versionInfo, null, 2), "utf-8");
-  logInfo(`Version info saved: ${version} (${source})`);
+  logInfo(`Version info saved: ${version}`);
 }
 
 /**
@@ -563,10 +567,85 @@ async function copyFromLauncher(): Promise<boolean> {
   copyFileSync(launcherAssets, ASSETS_FILE);
 
   clearServerFilesCache();
-  saveVersionInfo("launcher");
   logInfo("Server files copied successfully!");
   return true;
 }
+
+const manualProvider: DownloadProvider = {
+  id: "manual",
+  async ensure(): Promise<void> {
+    if (hasExistingFiles()) {
+      return;
+    }
+    showManualInstructions();
+    fatal("Server files must be provided manually. See instructions above.");
+  },
+};
+
+const launcherProvider: DownloadProvider = {
+  id: "launcher",
+  async ensure(): Promise<void> {
+    if (await copyFromLauncher()) {
+      logInfo("Server files ready!");
+      return;
+    }
+    fatal("Failed to copy from launcher. Check LAUNCHER_PATH.");
+  },
+};
+
+const cliProvider: DownloadProvider = {
+  id: "cli",
+  async ensure(): Promise<void> {
+    await ensureCli();
+
+    const updateOk = await checkCliUpdate();
+    if (!updateOk) {
+      fatal("CLI not logged in or auth expired. Please re-auth and try again.");
+    }
+
+    // Check if files already exist
+    if (hasExistingFiles()) {
+      if (FORCE_DOWNLOAD) {
+        logInfo("FORCE_DOWNLOAD=true, re-downloading...");
+      } else {
+        const shouldDownload = await checkForUpdates();
+        if (!shouldDownload) {
+          logInfo(`Using existing server files (version: ${getInstalledVersion()})`);
+          return;
+        }
+      }
+    }
+
+    await downloadServerFiles();
+    logInfo("Server files ready!");
+  },
+};
+
+const autoProvider: DownloadProvider = {
+  id: "auto",
+  async ensure(): Promise<void> {
+    logInfo("Auto-detecting best method...");
+
+    if (LAUNCHER_PATH) {
+      providers.launcher?.ensure();
+      return;
+    }
+
+    if (HYTALE_CLI_URL) {
+      providers.cli?.ensure();
+      return;
+    }
+
+    await providers.manual?.ensure();
+  },
+};
+
+const providers: Record<string, DownloadProvider> = {
+  manual: manualProvider,
+  launcher: launcherProvider,
+  cli: cliProvider,
+  auto: autoProvider,
+};
 
 /**
  * Main entry point for download module
@@ -593,72 +672,9 @@ export async function ensureServerFiles(): Promise<void> {
   mkdirSync(DATA_DIR, { recursive: true });
   mkdirSync(SERVER_DIR, { recursive: true });
 
-  // Determine how to obtain files based on mode
-  switch (DOWNLOAD_MODE) {
-    case "manual":
-      showManualInstructions();
-      fatal("Server files must be provided manually. See instructions above.");
-
-    case "launcher":
-      if (await copyFromLauncher()) {
-        logInfo("Server files ready!");
-        return;
-      } else {
-        fatal("Failed to copy from launcher. Check LAUNCHER_PATH.");
-      }
-
-    case "cli":
-      await cliMode();
-      break;
-
-    case "auto":
-    default:
-      // Auto mode: Try methods in order of preference
-      logInfo("Auto-detecting best method...");
-
-      // 1. Try launcher path if set
-      if (LAUNCHER_PATH) {
-        logInfo("Trying launcher copy...");
-        if (await copyFromLauncher()) {
-          logInfo("Server files ready!");
-          return;
-        }
-        logWarn("Launcher copy failed, trying next method...");
-      }
-
-      // 2. Try CLI if URL is set
-      if (HYTALE_CLI_URL) {
-        await cliMode();
-        return;
-      }
-
-      // 3. No automatic method available - show instructions
-      showManualInstructions();
-      fatal("No automatic download method available. See instructions above.");
+  const provider = providers[DOWNLOAD_MODE] ?? autoProvider;
+  if (!providers[DOWNLOAD_MODE] && DOWNLOAD_MODE !== "auto") {
+    logWarn(`Unknown DOWNLOAD_MODE=${DOWNLOAD_MODE}, falling back to auto`);
   }
-
-
-  async function cliMode() {
-    await ensureCli();
-
-    const updateOk = await checkCliUpdate();
-    if (!updateOk) {
-      die("CLI not logged in or auth expired. Please re-auth and try again.");
-    }
-
-    // Check if files already exist
-    if (hasExistingFiles()) {
-      logInfo(`Using existing server files (version: ${getInstalledVersion()})`);
-      if (FORCE_DOWNLOAD) {
-        logInfo("FORCE_DOWNLOAD=true, re-downloading...");
-      } else {
-        const shouldDownload = await checkForUpdates();
-        if (!shouldDownload) return;
-        logInfo("Update detected, downloading latest version...");
-      }
-    }
-
-    await downloadServerFiles();
-    logInfo("Server files ready!");
-  }
+  await provider.ensure();
 }
