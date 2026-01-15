@@ -147,7 +147,7 @@ The server detects existing tokens and only starts device auth when needed. Sess
 The image handles `SIGTERM` to save world data before exiting.
 
 ### Diagnostics Mode
-Set `DIAGNOSTICS=true` to run basic startup checks for port validity, `/tmp` writability, cgroup memory limit vs `JAVA_XMX`, and UDP buffer size. This mode only logs warnings/errors and does not change runtime behavior.
+Set `DIAGNOSTICS=true` to run basic startup checks for port validity, `/tmp` writability, cgroup memory limit vs `JAVA_XMX`, and UDP buffer size. If `/tmp` is not writable, startup will fail.
 
 ---
 
@@ -161,7 +161,7 @@ Set `DIAGNOSTICS=true` to run basic startup checks for port validity, `/tmp` wri
 | `LAUNCHER_PATH` | - | Path to mounted launcher directory (skips download) |
 | `HYTALE_PATCHLINE` | `release` | `release` or `pre-release` |
 | `FORCE_DOWNLOAD` | `false` | Force re-download even if files exist |
-| `CHECK_UPDATES` | `true` | Check for updates on startup (prints latest version) |
+| `CHECK_UPDATES` | `true` | Check for updates on startup (auto-downloads newer versions in CLI mode) |
 | `SKIP_CLI_UPDATE_CHECK` | `false` | Skip CLI self-update/version check |
 | `DOWNLOAD_MAX_RETRIES` | `5` | Max retry attempts for CLI download |
 | `DOWNLOAD_INITIAL_BACKOFF` | `2` | Initial backoff seconds between retries |
