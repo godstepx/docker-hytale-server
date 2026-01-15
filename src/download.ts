@@ -18,13 +18,14 @@ import {
 } from "fs";
 import { resolve as resolvePath, basename } from "path";
 import { cp } from "fs/promises";
-import { logInfo, logWarn, logError, logDebug, logSeparator, die } from "./log-utils.ts";
+import { logInfo, logWarn, logError, logDebug, logSeparator, fatal } from "./log-utils.ts";
 import {
   DATA_DIR,
   BUNDLED_CLI_DIR,
   USER_CLI_DIR,
   AUTH_CACHE,
   SERVER_DIR,
+  DATA_SERVER_JAR,
   ASSETS_FILE,
   VERSION_FILE,
   DOWNLOAD_MODE,
@@ -52,6 +53,21 @@ function calculateBackoff(attempt: number): number {
 
 // Cached CLI binary path (resolved once, reused)
 let cachedCliBinary: string | null = null;
+let cachedCliVersion: string | null = null;
+let serverFilesCache: { serverJar: boolean; assets: boolean } | null = null;
+
+function getServerFilesPresence(): { serverJar: boolean; assets: boolean } {
+  if (serverFilesCache) return serverFilesCache;
+  serverFilesCache = {
+    serverJar: existsSync(DATA_SERVER_JAR),
+    assets: existsSync(ASSETS_FILE),
+  };
+  return serverFilesCache;
+}
+
+function clearServerFilesCache(): void {
+  serverFilesCache = null;
+}
 
 /**
  * Get or resolve CLI binary path (cached after first call)
@@ -60,7 +76,7 @@ function getOrResolveCli(): string {
   if (cachedCliBinary) return cachedCliBinary;
   cachedCliBinary = getCliBinaryPath();
   if (!cachedCliBinary) {
-    die("CLI binary not found. Bundled CLI should always be present.");
+    fatal("CLI binary not found. Bundled CLI should always be present.");
   }
   return cachedCliBinary;
 }
@@ -70,6 +86,7 @@ function getOrResolveCli(): string {
  */
 function clearCliCache(): void {
   cachedCliBinary = null;
+  cachedCliVersion = null;
 }
 
 /**
@@ -98,6 +115,21 @@ function runCliSync(args: string[]): { exitCode: number; stdout: string } {
     exitCode: proc.exitCode ?? 1,
     stdout: new TextDecoder().decode(proc.stdout).trim(),
   };
+}
+
+function getCliVersionCached(): string {
+  if (cachedCliVersion) return cachedCliVersion;
+  let version = "unknown";
+  try {
+    const result = runCliSync(["-print-version"]);
+    if (result.exitCode === 0 && result.stdout) {
+      version = result.stdout;
+    }
+  } catch {
+    // Ignore version check errors
+  }
+  cachedCliVersion = version;
+  return version;
 }
 
 type CliResult = {
@@ -218,6 +250,14 @@ function getCliBinaryPath(): string | null {
   return detectCliBinaryIn(BUNDLED_CLI_DIR);
 }
 
+function logCliInfo(binary: string): void {
+  const isUserCli = binary.startsWith(USER_CLI_DIR);
+  const source = isUserCli ? "user" : "bundled";
+  const version = getCliVersionCached();
+
+  logInfo(`Using ${source} CLI: ${basename(binary)} (${version})`);
+}
+
 /**
  * Unzip a file to a directory using system unzip command
  */
@@ -272,7 +312,7 @@ async function downloadCli(): Promise<void> {
         logInfo(`CLI downloaded successfully: ${basename(binary)}`);
         return;
       } else {
-        die(`CLI extracted but no executable found in ${USER_CLI_DIR}`);
+        fatal(`CLI extracted but no executable found in ${USER_CLI_DIR}`);
       }
     } catch (error) {
       rmSync(tempZipPath, { force: true }); // Cleanup on error
@@ -283,7 +323,7 @@ async function downloadCli(): Promise<void> {
     }
   }
 
-  die(`Failed to download Hytale CLI after ${DOWNLOAD_MAX_RETRIES} attempts`);
+  fatal(`Failed to download Hytale CLI after ${DOWNLOAD_MAX_RETRIES} attempts`);
 }
 
 /**
@@ -300,16 +340,15 @@ async function ensureCli(): Promise<void> {
 
   // Log which CLI we're using
   const binary = getOrResolveCli();
-  const isUserCli = binary.startsWith(USER_CLI_DIR);
-  logInfo(`Using ${isUserCli ? "user" : "bundled"} CLI: ${basename(binary)}`);
+  logCliInfo(binary);
 }
 
 /**
  * Check if existing server files are present
  */
 function hasExistingFiles(): boolean {
-  const serverJar = resolvePath(SERVER_DIR, "HytaleServer.jar");
-  return existsSync(serverJar) && existsSync(ASSETS_FILE);
+  const presence = getServerFilesPresence();
+  return presence.serverJar && presence.assets;
 }
 
 async function checkForUpdates(): Promise<boolean> {
@@ -345,6 +384,7 @@ async function checkForUpdates(): Promise<boolean> {
  */
 async function downloadServerFiles(): Promise<void> {
   logInfo("Starting server file download...");
+  clearServerFilesCache();
 
   const downloadPath = resolvePath(DATA_DIR, "game.zip");
 
@@ -375,7 +415,7 @@ async function downloadServerFiles(): Promise<void> {
 
   if (result.exitCode !== 0) {
     handleCliAuthFailure(result.output);
-    die("Hytale Downloader failed. Please check the output above.");
+    fatal("Hytale Downloader failed. Please check the output above.");
   }
 
   logInfo("Download complete, extracting...");
@@ -404,7 +444,7 @@ async function downloadServerFiles(): Promise<void> {
       logDebug(`Renaming ${extractedServerDir} to ${SERVER_DIR}`);
       renameSync(extractedServerDir, SERVER_DIR);
     } else {
-      die("Extraction failed: Server directory not found after unzip");
+      fatal("Extraction failed: Server directory not found after unzip");
     }
 
     // Assets.zip is already in the right place (DATA_DIR/Assets.zip)
@@ -412,10 +452,11 @@ async function downloadServerFiles(): Promise<void> {
     // Cleanup downloaded archive
     rmSync(downloadPath, { force: true });
 
+    clearServerFilesCache();
     saveVersionInfo("cli");
     logInfo("Server files ready!");
   } else {
-    die("Expected game.zip not found after download");
+    fatal("Expected game.zip not found after download");
   }
 }
 
@@ -423,16 +464,7 @@ async function downloadServerFiles(): Promise<void> {
  * Save version information
  */
 function saveVersionInfo(source: string): void {
-  let version = "unknown";
-
-  try {
-    const result = runCliSync(["-print-version"]);
-    if (result.exitCode === 0) {
-      version = result.stdout;
-    }
-  } catch (error) {
-    // Ignore
-  }
+  const version = getCliVersionCached();
 
   const versionInfo = {
     version,
@@ -530,6 +562,7 @@ async function copyFromLauncher(): Promise<boolean> {
   logInfo("Copying Assets.zip...");
   copyFileSync(launcherAssets, ASSETS_FILE);
 
+  clearServerFilesCache();
   saveVersionInfo("launcher");
   logInfo("Server files copied successfully!");
   return true;
@@ -564,14 +597,14 @@ export async function ensureServerFiles(): Promise<void> {
   switch (DOWNLOAD_MODE) {
     case "manual":
       showManualInstructions();
-      die("Server files must be provided manually. See instructions above.");
+      fatal("Server files must be provided manually. See instructions above.");
 
     case "launcher":
       if (await copyFromLauncher()) {
         logInfo("Server files ready!");
         return;
       } else {
-        die("Failed to copy from launcher. Check LAUNCHER_PATH.");
+        fatal("Failed to copy from launcher. Check LAUNCHER_PATH.");
       }
 
     case "cli":
@@ -601,7 +634,7 @@ export async function ensureServerFiles(): Promise<void> {
 
       // 3. No automatic method available - show instructions
       showManualInstructions();
-      die("No automatic download method available. See instructions above.");
+      fatal("No automatic download method available. See instructions above.");
   }
 
 

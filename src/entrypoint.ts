@@ -17,16 +17,17 @@
 import { Subprocess } from "bun";
 import { readdirSync, statSync, unlinkSync } from "fs";
 import { join } from "path";
-import { logInfo, logWarn, logError, logDebug, logBanner, die } from "./log-utils.ts";
+import { logInfo, logWarn, logError, logDebug, logBanner, fatal } from "./log-utils.ts";
 import { downloadServer, buildJavaArgs, validateServerFiles, setupDirectories } from "./setup.ts";
 import { writeConfigFiles } from "./config-writer.ts";
 import { installCurseForgeMods } from "./mod-installer.ts";
+import { runDiagnostics } from "./diagnostics.ts";
 import {
   acquireSessionTokens,
   startOAuthRefreshLoop,
   stopOAuthRefreshLoop,
 } from "./token-manager.ts";
-import { DATA_DIR, LOG_DIR, LOG_RETENTION_DAYS, DRY_RUN } from "./config.ts";
+import { DATA_DIR, LOG_DIR, LOG_RETENTION_DAYS, DRY_RUN, DIAGNOSTICS } from "./config.ts";
 
 // Track the Java server process for signal handling
 let javaProcess: Subprocess | null = null;
@@ -55,7 +56,7 @@ function fixPermissionsAndDropPrivileges(): void {
     });
     process.exit(result.exitCode ?? 1);
   } catch (error) {
-    die(`Failed to drop privileges with su-exec: ${error}`);
+    fatal("Failed to drop privileges with su-exec", error);
   }
 }
 
@@ -187,6 +188,11 @@ async function main(): Promise<void> {
   logInfo("Setting up directories...");
   setupDirectories();
 
+  // Optional: Run diagnostics
+  if (DIAGNOSTICS) {
+    runDiagnostics();
+  }
+
   // Phase 2: Clean up old logs
   cleanupOldLogs();
 
@@ -251,5 +257,5 @@ async function main(): Promise<void> {
 
 main().catch((error) => {
   logError(`Entrypoint failed: ${error}`);
-  die(`Fatal error: ${error}`);
+  fatal("Fatal error", error);
 });

@@ -14,7 +14,7 @@ import {
   writeFileSync,
 } from "fs";
 import { resolve as resolvePath } from "path";
-import { logInfo, logWarn, logDebug, die } from "./log-utils.ts";
+import { logInfo, logWarn, logDebug, fatal } from "./log-utils.ts";
 import {
   CURSEFORGE_API_KEY,
   CURSEFORGE_GAME_VERSION,
@@ -389,7 +389,7 @@ export async function installCurseForgeMods(): Promise<void> {
       logWarn("CURSEFORGE_API_KEY is required to download mods");
       return;
     }
-    die("CURSEFORGE_API_KEY is required for CurseForge mod installation");
+    fatal("CURSEFORGE_API_KEY is required for CurseForge mod installation");
   }
 
   logDebug(
@@ -420,7 +420,7 @@ export async function installCurseForgeMods(): Promise<void> {
       resolvedMods.push(fileInfo);
     } catch (error) {
       if (error instanceof Error && error.message.toLowerCase().includes("unauthorized")) {
-        die("CurseForge API request unauthorized. Check CURSEFORGE_API_KEY.");
+        fatal("CurseForge API request unauthorized. Check CURSEFORGE_API_KEY.");
       }
       logWarn(`Failed to resolve mod ${mod.modId}: ${error}`);
     }

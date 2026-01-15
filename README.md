@@ -123,6 +123,9 @@ The server detects existing tokens and only starts device auth when needed. Sess
 ### Graceful Shutdown
 The image handles `SIGTERM` to save world data before exiting.
 
+### Diagnostics Mode
+Set `DIAGNOSTICS=true` to run basic startup checks for port validity, `/tmp` writability, cgroup memory limit vs `JAVA_XMX`, and UDP buffer size. This mode only logs warnings/errors and does not change runtime behavior.
+
 ---
 
 ## Environment Variables
@@ -187,6 +190,7 @@ The image handles `SIGTERM` to save world data before exiting.
 | **Logging & Debug** |||
 | `CONTAINER_LOG_LEVEL` | `INFO` | Container log level: `DEBUG`, `INFO`, `WARN`, `ERROR` |
 | `DRY_RUN` | `false` | Simulate startup without actually running the server |
+| `DIAGNOSTICS` | `false` | Run basic startup diagnostics (port validity, /tmp writable, memory limit, UDP buffer) |
 | `DATA_DIR` | `/data` | Base directory for all server data |
 
 ### Server Command-Line Flags
