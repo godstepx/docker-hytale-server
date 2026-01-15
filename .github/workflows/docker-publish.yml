@@ -2,7 +2,7 @@ name: Publish Docker Image
 
 on:
   push:
-    branches: ['main', 'beta']
+    branches: ['master', 'development']
     tags: ['v*']
 
 env:
@@ -39,8 +39,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=beta,enable=${{ github.ref == 'refs/heads/beta' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' }}
+            type=raw,value=beta,enable=${{ github.ref == 'refs/heads/development' }}
             type=ref,event=branch
             type=ref,event=tag
             type=sha,prefix=sha-
