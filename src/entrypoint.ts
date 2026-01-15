@@ -26,7 +26,7 @@ import {
   setupDirectories,
 } from "./setup.ts";
 import { writeConfigFiles } from "./config-writer.ts";
-import { installCurseForgeMods } from "./mod-installer.ts";
+import { installMods } from "./mod-installer/index.ts";
 import { runDiagnostics } from "./diagnostics.ts";
 import {
   acquireSessionTokens,
@@ -216,7 +216,7 @@ async function main(): Promise<void> {
   validateServerFiles();
 
   // Phase 7: Install mods (if configured)
-  await installCurseForgeMods();
+  await installMods();
 
   // Phase 8: Acquire session tokens
   logInfo("Acquiring session tokens...");

@@ -4,29 +4,21 @@
  */
 
 import { createHash } from "crypto";
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "fs";
+import { existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
 import { resolve as resolvePath } from "path";
-import { logInfo, logWarn, logDebug, fatal } from "./log-utils.ts";
+import { logInfo, logWarn, logDebug, fatal } from "../log-utils.ts";
 import {
   CURSEFORGE_API_KEY,
   CURSEFORGE_GAME_VERSION,
   CURSEFORGE_MOD_LIST,
   CURSEFORGE_MODS_DIR,
-  DATA_DIR,
   DOWNLOAD_INITIAL_BACKOFF,
   DOWNLOAD_MAX_RETRIES,
   DRY_RUN,
   HYTALE_PATCHLINE,
-  MOD_INSTALL_MODE,
-} from "./config.ts";
+} from "../config.ts";
+import { loadModCache, saveModCache } from "./cache.ts";
+import type { ModProvider } from "./types.ts";
 
 type ModRequest = {
   modId: number;
@@ -46,23 +38,8 @@ type CurseForgeFile = {
   gameVersions: string[];
 };
 
-type ModCache = {
-  mods: Record<
-    string,
-    {
-      modId: number;
-      fileId: number;
-      fileName: string;
-      fileLength: number;
-      hashes: Record<string, string>;
-      installedAt: string;
-    }
-  >;
-};
-
 const CURSEFORGE_API_BASE = "https://api.curseforge.com/v1";
 const CURSEFORGE_MOD_URL = "https://www.curseforge.com/hytale/mods/";
-const MOD_CACHE_FILE = resolvePath(DATA_DIR, ".mods-cache.json");
 
 function calculateBackoff(attempt: number): number {
   const baseBackoff = DOWNLOAD_INITIAL_BACKOFF * Math.pow(2, attempt - 1);
@@ -117,25 +94,6 @@ function parseModList(list: string): ModRequest[] {
 function loadModList(): ModRequest[] {
   if (!CURSEFORGE_MOD_LIST) return [];
   return parseModList(CURSEFORGE_MOD_LIST);
-}
-
-function loadCache(): ModCache {
-  if (!existsSync(MOD_CACHE_FILE)) {
-    return { mods: {} };
-  }
-
-  try {
-    const content = readFileSync(MOD_CACHE_FILE, "utf-8");
-    const parsed = JSON.parse(content) as ModCache;
-    if (!parsed.mods) return { mods: {} };
-    return parsed;
-  } catch {
-    return { mods: {} };
-  }
-}
-
-function saveCache(cache: ModCache): void {
-  writeFileSync(MOD_CACHE_FILE, JSON.stringify(cache, null, 2), "utf-8");
 }
 
 async function fetchJsonWithRetries<T>(url: string, label: string): Promise<T> {
@@ -368,13 +326,11 @@ async function downloadFile(url: string, targetPath: string, label: string): Pro
 }
 
 export async function installCurseForgeMods(): Promise<void> {
-  if (MOD_INSTALL_MODE !== "curseforge") return;
-
   const modList = loadModList();
   if (!modList.length) {
     logInfo("CurseForge mod install enabled, but no mods were specified");
     if (!CURSEFORGE_MODS_DIR) return;
-    const cache = loadCache();
+    const cache = loadModCache();
     let removedCount = 0;
     for (const entry of Object.values(cache.mods)) {
       const stalePath = resolvePath(CURSEFORGE_MODS_DIR, entry.fileName);
@@ -387,7 +343,7 @@ export async function installCurseForgeMods(): Promise<void> {
       logInfo(`Removed ${removedCount} cached mod file(s)`);
     }
     cache.mods = {};
-    saveCache(cache);
+    saveModCache(cache);
     return;
   }
 
@@ -416,7 +372,7 @@ export async function installCurseForgeMods(): Promise<void> {
   }
 
   mkdirSync(CURSEFORGE_MODS_DIR, { recursive: true });
-  const cache = loadCache();
+  const cache = loadModCache();
 
   logInfo(`Installing ${modList.length} CurseForge mod(s) into ${CURSEFORGE_MODS_DIR}`);
 
@@ -467,7 +423,7 @@ export async function installCurseForgeMods(): Promise<void> {
     }
   }
 
-  saveCache(cache);
+  saveModCache(cache);
 
   for (const fileInfo of resolvedMods) {
     const targetPath = resolvePath(CURSEFORGE_MODS_DIR, fileInfo.fileName);
@@ -502,7 +458,7 @@ export async function installCurseForgeMods(): Promise<void> {
           hashes: fileInfo.hashes,
           installedAt: new Date().toISOString(),
         };
-        saveCache(cache);
+        saveModCache(cache);
         continue;
       }
       logWarn(`Mod ${fileInfo.modName} (${fileInfo.modId}) checksum mismatch, re-downloading`);
@@ -533,7 +489,13 @@ export async function installCurseForgeMods(): Promise<void> {
       installedAt: new Date().toISOString(),
     };
 
-    saveCache(cache);
+    saveModCache(cache);
     logInfo(`Installed mod ${fileInfo.modName} (${fileInfo.modId}) (${fileInfo.fileName})`);
   }
 }
+
+export const curseForgeProvider: ModProvider = {
+  id: "curseforge",
+  install: installCurseForgeMods,
+  getModDir: () => CURSEFORGE_MODS_DIR,
+};
