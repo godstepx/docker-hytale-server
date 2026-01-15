@@ -71,12 +71,15 @@ RUN curl -fsSL "${HYTALE_CLI_URL}" -o hytale-cli.zip && \
     unzip -q hytale-cli.zip && \
     rm hytale-cli.zip && \
     case "${TARGETARCH}" in \
-      arm64) CLI_BIN="hytale-downloader-linux-arm64" ;; \
-      amd64) CLI_BIN="hytale-downloader-linux-amd64" ;; \
+      arm64) CLI_CANDIDATES="hytale-downloader-linux-arm64 hytale-downloader-linux-amd64" ;; \
+      amd64) CLI_CANDIDATES="hytale-downloader-linux-amd64" ;; \
       *) echo "Unsupported arch: ${TARGETARCH}" && exit 1 ;; \
     esac && \
-    if [ ! -f "${CLI_BIN}" ]; then \
-      echo "Expected CLI binary not found: ${CLI_BIN}" && exit 1; \
+    for bin in ${CLI_CANDIDATES}; do \
+      if [ -f "${bin}" ]; then CLI_BIN="${bin}"; break; fi; \
+    done && \
+    if [ -z "${CLI_BIN}" ]; then \
+      echo "Expected CLI binary not found for ${TARGETARCH} in: ${CLI_CANDIDATES}" && exit 1; \
     fi && \
     mv "${CLI_BIN}" hytale-downloader && \
     find . -maxdepth 1 -type f -name "hytale-downloader-*" -delete && \
