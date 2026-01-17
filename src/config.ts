@@ -10,21 +10,35 @@ import { resolve } from "path";
 // Helper Functions
 // =============================================================================
 
-function getEnv(key: string, defaultValue: string): string {
+export function getEnv(key: string, defaultValue: string): string {
   return process.env[key] || defaultValue;
 }
 
-function getEnvBool(key: string, defaultValue: boolean): boolean {
+export function getEnvBool(key: string, defaultValue: boolean): boolean {
   const value = process.env[key]?.toLowerCase();
   if (value === undefined) return defaultValue;
   return value === "true" || value === "1" || value === "yes";
 }
 
-function getEnvInt(key: string, defaultValue: number): number {
+export function getEnvInt(key: string, defaultValue: number): number {
   const value = process.env[key];
   if (value === undefined) return defaultValue;
   const parsed = parseInt(value, 10);
   return isNaN(parsed) ? defaultValue : parsed;
+}
+
+export function parseEnvList(value: string): string[] {
+  return value
+    .split(/[,\n]/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+export function getEnvList(key: string, defaultValue: string[] = []): string[] {
+  const value = process.env[key];
+  if (value === undefined) return defaultValue;
+  const parsed = parseEnvList(value);
+  return parsed.length ? parsed : defaultValue;
 }
 
 function getEnvPort(key: string, defaultValue: number): number {
@@ -148,7 +162,7 @@ export const PLAYER_STORAGE_TYPE = getEnv("PLAYER_STORAGE_TYPE", "Hytale");
 
 // Whitelist configuration
 export const WHITELIST_ENABLED = getEnvBool("WHITELIST_ENABLED", false);
-export const WHITELIST_LIST = getEnv("WHITELIST_LIST", ""); // Comma-separated player UUIDs
+export const WHITELIST_LIST = getEnvList("WHITELIST_LIST", []); // Comma/newline-separated player UUIDs
 export const WHITELIST_JSON = getEnv("WHITELIST_JSON", ""); // Full JSON override
 
 // =============================================================================
@@ -172,7 +186,7 @@ export const CONTAINER_LOG_LEVEL = getEnv("CONTAINER_LOG_LEVEL", "INFO").toUpper
 
 export const DRY_RUN = getEnvBool("DRY_RUN", false);
 export const DIAGNOSTICS = getEnvBool("DIAGNOSTICS", false);
-export const TZ = getEnv("TZ", "UTC");
+export const NO_COLOR = getEnvBool("NO_COLOR", false);
 
 // =============================================================================
 // Token Configuration
