@@ -1,5 +1,5 @@
 /**
- * Download Adapter - Hytale Server Files Management
+ * Hytale Server File Management
  * Handles obtaining server files via multiple methods:
  *   1. MANUAL: User provides files via volume mount (no auth needed)
  *   2. CLI: Official Hytale Downloader CLI with OAuth2 (recommended)
@@ -19,6 +19,7 @@ import {
 import { resolve as resolvePath, basename } from "path";
 import { cp } from "fs/promises";
 import { logInfo, logWarn, logError, logDebug, logSeparator, fatal } from "./log-utils.ts";
+import { calculateBackoff } from "./utils.ts";
 import {
   DATA_DIR,
   BUNDLED_CLI_DIR,
@@ -32,7 +33,6 @@ import {
   HYTALE_CLI_URL,
   LAUNCHER_PATH,
   DOWNLOAD_MAX_RETRIES,
-  DOWNLOAD_INITIAL_BACKOFF,
   HYTALE_PATCHLINE,
   FORCE_DOWNLOAD,
   CHECK_UPDATES,
@@ -42,18 +42,12 @@ import {
 
 const CLI_CREDENTIALS_PATH = resolvePath(AUTH_CACHE, "credentials.json");
 
-interface DownloadProvider {
-  id: string;
+interface ModeHandler {
   ensure: () => Promise<void>;
 }
 
-/**
- * Calculate exponential backoff with jitter
- */
-function calculateBackoff(attempt: number): number {
-  const baseBackoff = DOWNLOAD_INITIAL_BACKOFF * Math.pow(2, attempt - 1);
-  const jitter = Math.floor(Math.random() * 5);
-  return baseBackoff + jitter;
+function logServerFilesReady(): void {
+  logInfo("Server files ready!");
 }
 
 // Cached CLI binary path (resolved once, reused)
@@ -258,9 +252,7 @@ function getCliBinaryPath(): string | null {
 function logCliInfo(binary: string): void {
   const isUserCli = binary.startsWith(USER_CLI_DIR);
   const source = isUserCli ? "user" : "bundled";
-  const version = getCliVersionCached();
-
-  logInfo(`Using ${source} CLI: ${basename(binary)} (${version})`);
+  logInfo(`Using ${source} CLI: ${basename(binary)}`);
 }
 
 /**
@@ -391,13 +383,15 @@ async function downloadServerFiles(): Promise<void> {
   logInfo("Starting server file download...");
   clearServerFilesCache();
 
-  const downloadPath = resolvePath(DATA_DIR, "game.zip");
+  const tempDir = "/tmp";
+  const downloadPath = resolvePath(tempDir, "hytale-game.zip");
+  mkdirSync(tempDir, { recursive: true });
 
-  // Clean up any leftover game.zip from previous failed runs
+  // Clean up any leftover archive from previous failed runs
   try {
     rmSync(downloadPath, { force: true });
   } catch (error) {
-    logWarn(`Could not clean up old game.zip: ${error}`);
+    logWarn(`Could not clean up old download archive: ${error}`);
   }
 
   const downloadArgs = ["-download-path", downloadPath];
@@ -459,9 +453,8 @@ async function downloadServerFiles(): Promise<void> {
 
     clearServerFilesCache();
     saveVersionInfo();
-    logInfo("Server files ready!");
   } else {
-    fatal("Expected game.zip not found after download");
+    fatal("Expected download archive not found after download");
   }
 }
 
@@ -504,30 +497,24 @@ function showManualInstructions(): void {
   logSeparator();
   logError("Server files not found!");
   logSeparator();
-  logInfo("");
-  logInfo("Please provide server files using one of these methods:");
-  logInfo("");
-  logInfo("Option 1: Copy from your Hytale Launcher installation");
-  logInfo("  Source locations:");
-  logInfo("    Windows: %appdata%\\Hytale\\install\\release\\package\\game\\latest");
-  logInfo("    Linux:   $XDG_DATA_HOME/Hytale/install/release/package/game/latest");
-  logInfo("    MacOS:   ~/Application Support/Hytale/install/release/package/game/latest");
-  logInfo("");
-  logInfo("  Copy 'Server/' folder and 'Assets.zip' to your data volume:");
-  logInfo("    docker cp ./Server hytale-server:/data/server");
-  logInfo("    docker cp ./Assets.zip hytale-server:/data/Assets.zip");
-  logInfo("");
-  logInfo("Option 2: Use Hytale Downloader CLI");
-  logInfo("  Set HYTALE_CLI_URL environment variable to the CLI download URL");
   logInfo(
-    "  (Get URL from: https://support.hytale.com/hc/en-us/articles/45326769420827-Hytale-Server-Manual)"
+    `\nPlease provide server files using one of these methods:\n\n` +
+      `Option 1 (Recommended): Use Hytale Downloader CLI\n` +
+      `  Set DOWNLOAD_MODE=cli (HYTALE_CLI_URL is optional if using the bundled CLI)\n` +
+      `  Custom CLI URL: https://support.hytale.com/hc/en-us/articles/45326769420827-Hytale-Server-Manual\n\n` +
+      `Option 2: Copy from your Hytale Launcher installation\n` +
+      `  Source locations:\n` +
+      `    Windows: %appdata%\\Hytale\\install\\release\\package\\game\\latest\n` +
+      `    Linux:   $XDG_DATA_HOME/Hytale/install/release/package/game/latest\n` +
+      `    MacOS:   ~/Application Support/Hytale/install/release/package/game/latest\n\n` +
+      `  Copy 'Server/' folder and 'Assets.zip' to your data volume:\n` +
+      `    docker cp ./Server hytale-server:/data/server\n` +
+      `    docker cp ./Assets.zip hytale-server:/data/Assets.zip\n\n` +
+      `Option 3: Mount launcher directory directly\n` +
+      `  docker run -v /path/to/Hytale/install/release/package/game/latest:/launcher:ro \\\n` +
+      `             -e LAUNCHER_PATH=/launcher \\\n` +
+      `             -v hytale-data:/data ...\n`
   );
-  logInfo("");
-  logInfo("Option 3: Mount launcher directory directly");
-  logInfo("  docker run -v /path/to/Hytale/install/release/package/game/latest:/launcher:ro \\");
-  logInfo("             -e LAUNCHER_PATH=/launcher \\");
-  logInfo("             -v hytale-data:/data ...");
-  logInfo("");
   logSeparator();
 }
 
@@ -571,30 +558,24 @@ async function copyFromLauncher(): Promise<boolean> {
   return true;
 }
 
-const manualProvider: DownloadProvider = {
-  id: "manual",
+const manualHandler: ModeHandler = {
   async ensure(): Promise<void> {
-    if (hasExistingFiles()) {
-      return;
-    }
     showManualInstructions();
     fatal("Server files must be provided manually. See instructions above.");
   },
 };
 
-const launcherProvider: DownloadProvider = {
-  id: "launcher",
+const launcherHandler: ModeHandler = {
   async ensure(): Promise<void> {
     if (await copyFromLauncher()) {
-      logInfo("Server files ready!");
+      logServerFilesReady();
       return;
     }
     fatal("Failed to copy from launcher. Check LAUNCHER_PATH.");
   },
 };
 
-const cliProvider: DownloadProvider = {
-  id: "cli",
+const cliHandler: ModeHandler = {
   async ensure(): Promise<void> {
     await ensureCli();
 
@@ -617,43 +598,45 @@ const cliProvider: DownloadProvider = {
     }
 
     await downloadServerFiles();
-    logInfo("Server files ready!");
+    logServerFilesReady();
   },
 };
 
-const autoProvider: DownloadProvider = {
-  id: "auto",
+const autoHandler: ModeHandler = {
   async ensure(): Promise<void> {
     logInfo("Auto-detecting best method...");
 
     if (LAUNCHER_PATH) {
-      providers.launcher?.ensure();
+      logInfo("Using mode: launcher");
+      await modeHandlers.launcher?.ensure();
       return;
     }
 
     if (HYTALE_CLI_URL) {
-      providers.cli?.ensure();
+      logInfo("Using mode: cli");
+      await modeHandlers.cli?.ensure();
       return;
     }
 
-    await providers.manual?.ensure();
+    await modeHandlers.manual?.ensure();
   },
 };
 
-const providers: Record<string, DownloadProvider> = {
-  manual: manualProvider,
-  launcher: launcherProvider,
-  cli: cliProvider,
-  auto: autoProvider,
+const modeHandlers: Record<string, ModeHandler> = {
+  manual: manualHandler,
+  launcher: launcherHandler,
+  cli: cliHandler,
+  auto: autoHandler,
 };
 
 /**
  * Main entry point for download module
  * Can be called directly or imported by other modules
  */
-export async function ensureServerFiles(): Promise<void> {
+export async function prepareServerFiles(): Promise<void> {
+  logSeparator();
   logInfo("Hytale Server File Manager");
-  logInfo("==========================");
+  logSeparator();
   logInfo(`Mode: ${DOWNLOAD_MODE}`);
 
   // DRY_RUN mode
@@ -665,6 +648,7 @@ export async function ensureServerFiles(): Promise<void> {
     logInfo(`[DRY_RUN] Patchline: ${HYTALE_PATCHLINE}`);
     logInfo(`[DRY_RUN] Server dir: ${SERVER_DIR}`);
     logInfo(`[DRY_RUN] Assets: ${ASSETS_FILE}`);
+    logInfo(`[DRY_RUN] Checking for updates: ${CHECK_UPDATES}`);
     return;
   }
 
@@ -672,9 +656,9 @@ export async function ensureServerFiles(): Promise<void> {
   mkdirSync(DATA_DIR, { recursive: true });
   mkdirSync(SERVER_DIR, { recursive: true });
 
-  const provider = providers[DOWNLOAD_MODE] ?? autoProvider;
-  if (!providers[DOWNLOAD_MODE] && DOWNLOAD_MODE !== "auto") {
-    logWarn(`Unknown DOWNLOAD_MODE=${DOWNLOAD_MODE}, falling back to auto`);
+  const handler = modeHandlers[DOWNLOAD_MODE] ?? autoHandler;
+  if (!modeHandlers[DOWNLOAD_MODE] && DOWNLOAD_MODE !== "auto") {
+    logWarn(`Unknown DOWNLOAD_MODE=${DOWNLOAD_MODE}, falling back to auto mode.`);
   }
-  await provider.ensure();
+  await handler.ensure();
 }

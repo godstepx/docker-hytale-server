@@ -13,7 +13,7 @@
 import { chmodSync, copyFileSync, existsSync, mkdirSync, unlinkSync } from "fs";
 import { dirname } from "path";
 import { logInfo, logWarn, fatal } from "./log-utils.ts";
-import { ensureServerFiles } from "./download.ts";
+import { prepareServerFiles } from "./download.ts";
 import { getModDir } from "./mod-installer/index.ts";
 import type { SessionTokens } from "./token-manager.ts";
 import {
@@ -44,6 +44,25 @@ import {
   ADDITIONAL_PLUGINS_DIR,
   SERVER_LOG_LEVEL,
   HYTALE_OWNER_NAME,
+  BARE_MODE,
+  CLIENT_PID,
+  DISABLE_ASSET_COMPARE,
+  DISABLE_CPB_BUILD,
+  DISABLE_FILE_WATCHER,
+  EVENT_DEBUG,
+  FORCE_NETWORK_FLUSH,
+  GENERATE_SCHEMA,
+  MIGRATE_WORLDS,
+  MIGRATIONS,
+  PREFAB_CACHE,
+  SHUTDOWN_AFTER_VALIDATE,
+  SINGLEPLAYER,
+  UNIVERSE_PATH,
+  VALIDATE_ASSETS,
+  VALIDATE_PREFABS,
+  VALIDATE_WORLD_GEN,
+  SHOW_VERSION,
+  WORLD_GEN,
   HYTALE_SERVER_SESSION_TOKEN,
   HYTALE_SERVER_IDENTITY_TOKEN,
   HYTALE_OWNER_UUID,
@@ -54,7 +73,7 @@ import {
  */
 export async function downloadServer(): Promise<void> {
   try {
-    await ensureServerFiles();
+    await prepareServerFiles();
   } catch (error) {
     fatal("Server file download failed", error);
   }
@@ -87,6 +106,12 @@ export function ensureReadOnlyServerJar(): void {
  */
 export function buildJavaArgs(sessionTokens: SessionTokens | null): string[] {
   const args: string[] = [];
+  const addFlag = (flag: string, enabled: boolean): void => {
+    if (enabled) args.push(flag);
+  };
+  const addArg = (flag: string, value: string): void => {
+    if (value) args.push(flag, value);
+  };
 
   // Memory settings
   args.push(`-Xms${JAVA_XMS}`, `-Xmx${JAVA_XMX}`);
@@ -161,9 +186,7 @@ export function buildJavaArgs(sessionTokens: SessionTokens | null): string[] {
   args.push("--auth-mode", AUTH_MODE);
 
   // Disable sentry
-  if (DISABLE_SENTRY) {
-    args.push("--disable-sentry");
-  }
+  addFlag("--disable-sentry", DISABLE_SENTRY);
 
   // Accept early plugins (unsupported)
   if (ACCEPT_EARLY_PLUGINS) {
@@ -172,25 +195,42 @@ export function buildJavaArgs(sessionTokens: SessionTokens | null): string[] {
   }
 
   // Allow operator commands
-  if (ALLOW_OP) {
-    args.push("--allow-op");
-  }
+  addFlag("--allow-op", ALLOW_OP);
 
   // Backups
   if (ENABLE_BACKUPS) {
-    args.push("--backup");
-    args.push("--backup-dir", BACKUP_DIR);
-    args.push("--backup-frequency", BACKUP_FREQUENCY);
-    args.push("--backup-max-count", BACKUP_MAX_COUNT);
+    addFlag("--backup", true);
+    addArg("--backup-dir", BACKUP_DIR);
+    addArg("--backup-frequency", BACKUP_FREQUENCY);
+    addArg("--backup-max-count", BACKUP_MAX_COUNT);
     logInfo(
       `Backups enabled: every ${BACKUP_FREQUENCY} minutes to ${BACKUP_DIR} (max ${BACKUP_MAX_COUNT})`
     );
   }
 
   // Transport type (e.g., QUIC, TCP)
-  if (TRANSPORT_TYPE) {
-    args.push("--transport", TRANSPORT_TYPE);
-  }
+  addArg("--transport", TRANSPORT_TYPE);
+
+  // Advanced server toggles and options
+  addFlag("--bare", BARE_MODE);
+  addArg("--client-pid", CLIENT_PID);
+  addFlag("--disable-asset-compare", DISABLE_ASSET_COMPARE);
+  addFlag("--disable-cpb-build", DISABLE_CPB_BUILD);
+  addFlag("--disable-file-watcher", DISABLE_FILE_WATCHER);
+  addFlag("--event-debug", EVENT_DEBUG);
+  addArg("--force-network-flush", FORCE_NETWORK_FLUSH);
+  addFlag("--generate-schema", GENERATE_SCHEMA);
+  addArg("--migrate-worlds", MIGRATE_WORLDS);
+  addArg("--migrations", MIGRATIONS);
+  addArg("--prefab-cache", PREFAB_CACHE);
+  addFlag("--shutdown-after-validate", SHUTDOWN_AFTER_VALIDATE);
+  addFlag("--singleplayer", SINGLEPLAYER);
+  addArg("--universe", UNIVERSE_PATH);
+  addFlag("--validate-assets", VALIDATE_ASSETS);
+  addArg("--validate-prefabs", VALIDATE_PREFABS);
+  addFlag("--validate-world-gen", VALIDATE_WORLD_GEN);
+  addFlag("--version", SHOW_VERSION);
+  addArg("--world-gen", WORLD_GEN);
 
   // Boot commands (comma-separated, run on server start)
   if (BOOT_COMMANDS) {
@@ -205,27 +245,25 @@ export function buildJavaArgs(sessionTokens: SessionTokens | null): string[] {
 
   // Additional mods directory
   if (ADDITIONAL_MODS_DIR) {
-    args.push("--mods", ADDITIONAL_MODS_DIR);
+    addArg("--mods", ADDITIONAL_MODS_DIR);
     logInfo(`Additional mods directory: ${ADDITIONAL_MODS_DIR}`);
   }
 
   // Provider mod directory (adds extra --mods path)
   const modsDir = getModDir();
   if (modsDir && (!ADDITIONAL_MODS_DIR || ADDITIONAL_MODS_DIR !== modsDir)) {
-    args.push("--mods", modsDir);
+    addArg("--mods", modsDir);
     logInfo(`Mods directory: ${modsDir}`);
   }
 
   // Additional early plugins directory
   if (ADDITIONAL_PLUGINS_DIR) {
-    args.push("--early-plugins", ADDITIONAL_PLUGINS_DIR);
+    addArg("--early-plugins", ADDITIONAL_PLUGINS_DIR);
     logInfo(`Additional early plugins directory: ${ADDITIONAL_PLUGINS_DIR}`);
   }
 
   // Server log level (e.g., root=DEBUG)
-  if (SERVER_LOG_LEVEL) {
-    args.push("--log", SERVER_LOG_LEVEL);
-  }
+  addArg("--log", SERVER_LOG_LEVEL);
 
   // ==========================================================================
   // Session Tokens (for authenticated mode)
@@ -328,8 +366,8 @@ function parseJavaOpts(value: string): string[] {
  * Validate server files exist
  */
 export function validateServerFiles(): void {
-  if (!existsSync(SERVER_JAR)) {
-    fatal(`Server JAR not found: ${SERVER_JAR}`);
+  if (!existsSync(DATA_SERVER_JAR)) {
+    fatal(`Server JAR not found in data directory: ${DATA_SERVER_JAR}`);
   }
 
   if (!existsSync(ASSETS_FILE)) {
