@@ -1,12 +1,12 @@
 # Hytale Server Docker Image
 
+![Hybuild](assets/hybuild.png)
+
 [![GitHub stars](https://img.shields.io/github/stars/godstepx/docker-hytale-server?style=for-the-badge)](https://github.com/godstepx/docker-hytale-server)
 [![GitHub last commit](https://img.shields.io/github/last-commit/godstepx/docker-hytale-server?style=for-the-badge)](https://github.com/godstepx/docker-hytale-server)
 [![License](https://img.shields.io/github/license/godstepx/docker-hytale-server?style=for-the-badge)](https://github.com/godstepx/docker-hytale-server/blob/main/LICENSE)
 [![GHCR pulls](https://img.shields.io/ghcr/pulls/godstepx/docker-hytale-server?style=for-the-badge)](https://github.com/godstepx/docker-hytale-server/pkgs/container/docker-hytale-server)
 [![GHCR image size](https://img.shields.io/ghcr/image-size/godstepx/docker-hytale-server/latest?style=for-the-badge)](https://github.com/godstepx/docker-hytale-server/pkgs/container/docker-hytale-server)
-
-![Hybuild](assets/hybuild.png)
 
 🐳 Docker image for self-hosting Hytale Dedicated Servers with OAuth handling, flexible download modes, and easy configuration.
 
@@ -29,7 +29,7 @@ services:
       - "5520:5520/udp"
     volumes:
       - ./data:/data
-      # Linux only: avoid "Failed to get hardware UUID" at startup
+      # Optional (Linux): mount host machine-id to avoid startup UUID warnings
       - /etc/machine-id:/etc/machine-id:ro
     environment:
       JAVA_XMX: "4G"
@@ -100,9 +100,9 @@ docker push ghcr.io/your-user/docker-hytale-server:latest
 
 ---
 
-## 🚀 Easy Setup with Hytale Compose
+## 🚀 Easy Setup with setuphytale.com
 
-Instead of writing YAML by hand, use [Hytale Compose](https://github.com/godstepx/hytale-compose) to generate perfect configurations:
+Instead of writing YAML by hand, use [setuphytale.com](https://setuphytale.com) to generate configurations:
 
 - ✨ **5-step wizard** for server configuration
 - 📊 **Performance presets** (Basic, Large, High Performance)
@@ -173,7 +173,7 @@ Set `DIAGNOSTICS=true` to run basic startup checks for port validity, `/tmp` wri
 | **Server Options** |||
 | `SERVER_PORT` | `5520` | UDP port (QUIC) |
 | `BIND_ADDRESS` | `0.0.0.0` | Address to bind the server to |
-| `AUTH_MODE` | `authenticated` | `authenticated` or `offline` |
+| `AUTH_MODE` | `authenticated` | `authenticated`, `offline`, or `insecure` |
 | `ENABLE_BACKUPS` | `false` | Enable automatic backups |
 | `BACKUP_FREQUENCY` | `30` | Backup interval (minutes) |
 | `BACKUP_DIR` | `/data/backups` | Backup directory |
@@ -195,7 +195,7 @@ Set `DIAGNOSTICS=true` to run basic startup checks for port validity, `/tmp` wri
 | `HYTALE_CONFIG_JSON` | - | Full JSON override for config.json |
 | **Whitelist Configuration** |||
 | `WHITELIST_ENABLED` | `false` | Enable whitelist |
-| `WHITELIST_LIST` | - | Comma-separated list of player UUIDs |
+| `WHITELIST_LIST` | - | Comma/newline-separated list of player UUIDs |
 | `WHITELIST_JSON` | - | Full JSON override for whitelist.json |
 | **Advanced Options** |||
 | `TRANSPORT_TYPE` | - | Transport protocol (e.g., `QUIC`, `TCP`) |
@@ -203,10 +203,28 @@ Set `DIAGNOSTICS=true` to run basic startup checks for port validity, `/tmp` wri
 | `ADDITIONAL_MODS_DIR` | - | Additional mods directory path |
 | `ADDITIONAL_PLUGINS_DIR` | - | Additional early plugins directory path |
 | `SERVER_LOG_LEVEL` | - | Server log level (e.g., `root=DEBUG`) |
-| `HYTALE_OWNER_NAME` | - | Display name for server owner |
+| `BARE_MODE` | `false` | Start in bare mode |
+| `CLIENT_PID` | - | Client PID |
+| `DISABLE_ASSET_COMPARE` | `false` | Disable asset compare |
+| `DISABLE_CPB_BUILD` | `false` | Disable CPB build |
+| `DISABLE_FILE_WATCHER` | `false` | Disable file watcher |
+| `EVENT_DEBUG` | `false` | Enable event debug |
+| `FORCE_NETWORK_FLUSH` | - | Force network flush setting |
+| `GENERATE_SCHEMA` | `false` | Generate schema on startup |
+| `MIGRATE_WORLDS` | - | Migrate worlds path |
+| `MIGRATIONS` | - | Migrations path |
+| `PREFAB_CACHE` | - | Prefab cache path |
+| `SHUTDOWN_AFTER_VALIDATE` | `false` | Shutdown after validate |
+| `SINGLEPLAYER` | `false` | Start in singleplayer mode |
+| `UNIVERSE_PATH` | - | Universe path |
+| `VALIDATE_ASSETS` | `false` | Validate assets |
+| `VALIDATE_PREFABS` | - | Validate prefabs path |
+| `VALIDATE_WORLD_GEN` | `false` | Validate world gen |
+| `SHOW_VERSION` | `false` | Print version and exit |
+| `WORLD_GEN` | - | World gen path |
 | **Mod Installation (CurseForge)** |||
 | `MOD_INSTALL_MODE` | `off` | `off` or `curseforge` |
-| `CURSEFORGE_MOD_LIST` | - | Comma-separated CurseForge mod IDs (`12345` or `12345:67890`) |
+| `CURSEFORGE_MOD_LIST` | - | Comma/newline-separated CurseForge mod IDs (`12345` or `12345:67890`) |
 | `CURSEFORGE_API_KEY` | - | CurseForge API key (required when `MOD_INSTALL_MODE=curseforge`) |
 | `CURSEFORGE_GAME_VERSION` | `Early Access` | Hytale version label used to pick matching files |
 | `CURSEFORGE_MODS_DIR` | `/data/curseforge-mods` | CurseForge mods directory (added as extra `--mods` path) |
@@ -222,7 +240,7 @@ Set `DIAGNOSTICS=true` to run basic startup checks for port validity, `/tmp` wri
 All flags are documented in the official Hytale server. To see the complete list:
 
 ```bash
-# Note: Server JAR is at /data/server/HytaleServer.jar in a running container
+# Note: Server JAR is copied to /usr/local/lib/hytale/HytaleServer.jar at startup (read-only)
 # To see help, you need server files downloaded first
 docker run --rm -v hytale-data:/data ghcr.io/godstepx/docker-hytale-server:latest java -jar /data/server/HytaleServer.jar --help
 ```
@@ -230,6 +248,7 @@ docker run --rm -v hytale-data:/data ghcr.io/godstepx/docker-hytale-server:lates
 **Authentication Modes:**
 - `authenticated` (default): Requires server authentication. Use `/auth login device` in console after first startup
 - `offline`: No authentication required (for testing only)
+- `insecure`: Disables authentication (for development/testing only)
 
 **Backup Configuration:**
 Set `ENABLE_BACKUPS=true` to enable automatic backups. Backups are saved to `/data/backups` by default every 30 minutes. Adjust with `BACKUP_FREQUENCY` and `BACKUP_DIR`.
@@ -242,7 +261,7 @@ Set `ACCEPT_EARLY_PLUGINS=true` to acknowledge loading early plugins. This is un
 
 ### Automatic Mod Installation (CurseForge)
 
-Enable automatic mod installation by setting `MOD_INSTALL_MODE=curseforge`. Mods are installed into `CURSEFORGE_MODS_DIR` (default: `/data/curseforge-mods`), cached to avoid re-downloading, and stale cached mods are removed when they are no longer listed. This directory is added as an extra `--mods` path, so the default `mods` directory is still loaded too.
+Enable automatic mod installation by setting `MOD_INSTALL_MODE=curseforge`. Mods are installed into `CURSEFORGE_MODS_DIR` (default: `/data/curseforge-mods`), state is tracked in `/data/.mods-state.json` to avoid re-downloading, and stale cached mods are removed when they are no longer listed. This directory is added as an extra `--mods` path, so the default `mods` directory is still loaded too.
 
 The server always loads the default `mods` directory under `/data/mods`. Use that directory for your own custom jars, and use `CURSEFORGE_MODS_DIR` for auto-installed mods.
 CurseForge API access requires an API key; set `CURSEFORGE_API_KEY` or the container will exit on startup when `MOD_INSTALL_MODE=curseforge`.
@@ -313,12 +332,14 @@ Skip the interactive auth flow by passing tokens directly:
 | `HYTALE_SERVER_SESSION_TOKEN` | Session token (JWT) |
 | `HYTALE_SERVER_IDENTITY_TOKEN` | Identity token (JWT) |
 | `HYTALE_OWNER_UUID` | Profile UUID for session |
+| `HYTALE_OWNER_NAME` | Display name for server owner |
 
 ```yaml
 environment:
   HYTALE_SERVER_SESSION_TOKEN: "eyJhbGciOiJFZERTQSIs..."
   HYTALE_SERVER_IDENTITY_TOKEN: "eyJhbGciOiJFZERTQSIs..."
   HYTALE_OWNER_UUID: "123e4567-e89b-12d3-a456-426614174000"
+  HYTALE_OWNER_NAME: "ServerOwner"
 ```
 
 For token acquisition, see the Official Hytale Documentation [Server Provider Authentication Guide](https://support.hytale.com/hc/en-us/articles/45328341414043-Server-Provider-Authentication-Guide).
@@ -326,10 +347,14 @@ For token acquisition, see the Official Hytale Documentation [Server Provider Au
 ## Volumes
 
 - `/data` - Everything persistent (Worlds, Configs, Logs, Auth)
+  - `/data/server/` - Server files (HytaleServer.jar, AOT cache)
+  - `/data/Assets.zip` - Game assets
   - `/data/universe/` - World saves
   - `/data/config.json` - Server configuration (auto-generated from env vars or managed by Hytale)
   - `/data/whitelist.json` - Whitelist configuration (auto-generated from env vars)
   - `/data/.auth/` - CLI auth cache (OAuth tokens)
+  - `/data/.mods-state.json` - Mod installer state (auto-managed)
+  - `/data/.machine-id` - Persistent machine-id used when host ID is not mounted
   - `/data/logs/` - Server logs
   - `/data/backups/` - Automatic backups (if enabled)
   - `/data/.version` - Installed version metadata
