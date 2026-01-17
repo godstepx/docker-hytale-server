@@ -12,7 +12,7 @@
 #   - Non-root user for security
 # =============================================================================
 
-ARG JAVA_VERSION=25
+ARG JAVA_VERSION=25.0.1_8
 ARG ALPINE_VERSION=3.20
 ARG HYTALE_CLI_URL="https://downloader.hytale.com/hytale-downloader.zip"
 
