@@ -12,7 +12,7 @@
  * for up to 30 days (refresh token lifetime).
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "fs";
 import { logInfo, logWarn, logError, logDebug, logSeparator } from "./log-utils.ts";
 import {
   AUTH_CACHE,
@@ -82,6 +82,44 @@ interface GameSessionResponse {
   sessionToken: string;
   identityToken: string;
   expiresAt: string;
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+function buildExpiresAt(expiresIn: number): string {
+  return new Date(Date.now() + expiresIn * 1000).toISOString();
+}
+
+async function postForm(url: string, params: Record<string, string>): Promise<Response> {
+  return await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(params),
+  });
+}
+
+function parseTokenResponse(
+  data: TokenResponse,
+  requireRefreshToken: boolean,
+  fallbackRefreshToken?: string
+): OAuthTokens {
+  if (data.error) {
+    throw new Error(`Token refresh failed: ${data.error}`);
+  }
+  if (!data.access_token) {
+    throw new Error("No access token in response");
+  }
+  if (requireRefreshToken && !data.refresh_token) {
+    throw new Error("No refresh token in response");
+  }
+
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token || fallbackRefreshToken || "",
+    expiresAt: buildExpiresAt(data.expires_in),
+  };
 }
 
 // =============================================================================
@@ -186,7 +224,6 @@ export function isRefreshTokenExpiringSoon(tokens: OAuthTokens): boolean {
 export function clearTokens(): void {
   try {
     if (existsSync(OAUTH_TOKEN_FILE)) {
-      const { unlinkSync } = require("fs");
       unlinkSync(OAUTH_TOKEN_FILE);
     }
     logInfo("Tokens cleared");
@@ -205,13 +242,9 @@ export function clearTokens(): void {
 export async function startDeviceAuth(): Promise<DeviceAuthResponse> {
   logInfo("Starting device authorization flow...");
 
-  const response = await fetch(OAUTH_DEVICE_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: CLIENT_ID,
-      scope: SCOPES,
-    }),
+  const response = await postForm(OAUTH_DEVICE_URL, {
+    client_id: CLIENT_ID,
+    scope: SCOPES,
   });
 
   if (!response.ok) {
@@ -241,14 +274,10 @@ export async function pollForToken(
   while (Date.now() < deadline) {
     await Bun.sleep(pollInterval);
 
-    const response = await fetch(OAUTH_TOKEN_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: CLIENT_ID,
-        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-        device_code: deviceCode,
-      }),
+    const response = await postForm(OAUTH_TOKEN_URL, {
+      client_id: CLIENT_ID,
+      grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+      device_code: deviceCode,
     });
 
     const data = (await response.json()) as TokenResponse;
@@ -271,17 +300,7 @@ export async function pollForToken(
 
       case undefined:
         // Success! We have tokens
-        if (!data.access_token || !data.refresh_token) {
-          throw new Error("Invalid token response");
-        }
-
-        const expiresAt = new Date(Date.now() + data.expires_in * 1000).toISOString();
-
-        const tokens: OAuthTokens = {
-          accessToken: data.access_token,
-          refreshToken: data.refresh_token,
-          expiresAt,
-        };
+        const tokens = parseTokenResponse(data, true);
 
         saveOAuthTokens(tokens);
         logInfo("Authorization successful!");
@@ -334,34 +353,15 @@ export async function refreshOAuthTokens(): Promise<OAuthTokens> {
     throw new Error("No refresh token available");
   }
 
-  const response = await fetch(OAUTH_TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: CLIENT_ID,
-      grant_type: "refresh_token",
-      refresh_token: stored.refreshToken,
-    }),
+  const response = await postForm(OAUTH_TOKEN_URL, {
+    client_id: CLIENT_ID,
+    grant_type: "refresh_token",
+    refresh_token: stored.refreshToken,
   });
 
   const data = (await response.json()) as TokenResponse;
 
-  if (data.error) {
-    throw new Error(`Token refresh failed: ${data.error}`);
-  }
-
-  if (!data.access_token) {
-    throw new Error("No access token in refresh response");
-  }
-
-  const expiresAt = new Date(Date.now() + data.expires_in * 1000).toISOString();
-
-  // Use new refresh token if provided, otherwise keep old one
-  const tokens: OAuthTokens = {
-    accessToken: data.access_token,
-    refreshToken: data.refresh_token || stored.refreshToken,
-    expiresAt,
-  };
+  const tokens = parseTokenResponse(data, false, stored.refreshToken);
 
   saveOAuthTokens(tokens);
   logInfo("OAuth tokens refreshed successfully");
