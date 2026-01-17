@@ -100,27 +100,86 @@ function runCliSync(args: string[]): { exitCode: number; stdout: string } {
   };
 }
 
+type CliResult = {
+  exitCode: number;
+  output: string;
+};
+
+async function captureCliOutput(
+  stream: ReadableStream<Uint8Array> | null,
+  writeTo: NodeJS.WriteStream
+): Promise<string> {
+  if (!stream) return "";
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of stream) {
+    writeTo.write(chunk);
+    chunks.push(chunk);
+  }
+  if (!chunks.length) return "";
+  const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return new TextDecoder().decode(merged);
+}
+
 /**
  * Run CLI command asynchronously with interactive I/O (for downloads with OAuth)
  */
-async function runCliAsync(args: string[]): Promise<number> {
+async function runCliAsync(args: string[]): Promise<CliResult> {
   // Ensure auth cache directory exists before CLI runs
   mkdirSync(AUTH_CACHE, { recursive: true });
 
   const cliBin = getOrResolveCli();
   const proc = Bun.spawn([cliBin, ...buildCliArgs(args)], {
-    stdout: "inherit",
-    stderr: "inherit",
+    stdout: "pipe",
+    stderr: "pipe",
     stdin: "inherit",
   });
-  return await proc.exited;
+
+  const [stdout, stderr, exitCode] = await Promise.all([
+    captureCliOutput(proc.stdout, process.stdout),
+    captureCliOutput(proc.stderr, process.stderr),
+    proc.exited,
+  ]);
+
+  const output = [stdout, stderr].filter(Boolean).join("\n");
+  return { exitCode: exitCode ?? 1, output };
 }
 
-async function checkCliLoggedIn(): Promise<boolean> {
-  logInfo("Checking CLI authentication status...");
-  const exitCode = await runCliAsync(["-print-version"]);
-  if (exitCode !== 0) {
-    logWarn(`CLI auth check failed (exit ${exitCode})`);
+// Some how get the error message from the CLI output
+function isCliAuthInvalid(output: string): boolean {
+  return (
+    /invalid_grant/i.test(output) ||
+    /refresh token.*invalid/i.test(output) ||
+    /401\s+Unauthorized/i.test(output) ||
+    /403\s+Forbidden/i.test(output)
+  );
+}
+
+function handleCliAuthFailure(output: string): void {
+  if (!isCliAuthInvalid(output)) return;
+  if (existsSync(CLI_CREDENTIALS_PATH)) {
+    try {
+      rmSync(CLI_CREDENTIALS_PATH, { force: true });
+      logWarn("CLI auth token expired or revoked. Cleared credentials.json; re-auth required.");
+    } catch (error) {
+      logWarn(`Failed to clear CLI credentials.json: ${error}`);
+    }
+  } else {
+    logWarn("CLI auth token expired or revoked. Re-auth required.");
+  }
+}
+
+async function checkCliUpdate(): Promise<boolean> {
+  logInfo("Checking CLI update status...");
+  const result = await runCliAsync(["-check-update"]);
+  if (result.exitCode !== 0) {
+    handleCliAuthFailure(result.output);
+    logWarn(`CLI update check failed (exit ${result.exitCode})`);
     return false;
   }
   return true;
@@ -258,8 +317,6 @@ async function checkForUpdates(): Promise<boolean> {
 
   logInfo("Checking for updates...");
   try {
-    const loggedIn = await checkCliLoggedIn();
-    if (!loggedIn) return false;
     const result = runCliSync(["-print-version"]);
     if (result.exitCode !== 0) return false;
 
@@ -311,12 +368,13 @@ async function downloadServerFiles(): Promise<void> {
   logSeparator();
   console.log(""); // Blank line before CLI output
 
-  const exitCode = await runCliAsync(downloadArgs);
+  const result = await runCliAsync(downloadArgs);
 
   console.log(""); // Blank line after CLI output
   logSeparator();
 
-  if (exitCode !== 0) {
+  if (result.exitCode !== 0) {
+    handleCliAuthFailure(result.output);
     die("Hytale Downloader failed. Please check the output above.");
   }
 
@@ -549,6 +607,11 @@ export async function ensureServerFiles(): Promise<void> {
 
   async function cliMode() {
     await ensureCli();
+
+    const updateOk = await checkCliUpdate();
+    if (!updateOk) {
+      die("CLI not logged in or auth expired. Please re-auth and try again.");
+    }
 
     // Check if files already exist
     if (hasExistingFiles()) {
