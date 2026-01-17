@@ -127,19 +127,31 @@ export const ADDITIONAL_MODS_DIR = getEnv("ADDITIONAL_MODS_DIR", "");
 export const ADDITIONAL_PLUGINS_DIR = getEnv("ADDITIONAL_PLUGINS_DIR", "");
 export const SERVER_LOG_LEVEL = getEnv("SERVER_LOG_LEVEL", "");
 export const HYTALE_OWNER_NAME = getEnv("HYTALE_OWNER_NAME", "");
+export const BARE_MODE = getEnvBool("BARE_MODE", false);
+export const CLIENT_PID = getEnv("CLIENT_PID", "");
+export const DISABLE_ASSET_COMPARE = getEnvBool("DISABLE_ASSET_COMPARE", false);
+export const DISABLE_CPB_BUILD = getEnvBool("DISABLE_CPB_BUILD", false);
+export const DISABLE_FILE_WATCHER = getEnvBool("DISABLE_FILE_WATCHER", false);
+export const EVENT_DEBUG = getEnvBool("EVENT_DEBUG", false);
+export const FORCE_NETWORK_FLUSH = getEnv("FORCE_NETWORK_FLUSH", "");
+export const GENERATE_SCHEMA = getEnvBool("GENERATE_SCHEMA", false);
+export const MIGRATE_WORLDS = getEnv("MIGRATE_WORLDS", "");
+export const MIGRATIONS = getEnv("MIGRATIONS", "");
+export const PREFAB_CACHE = getEnv("PREFAB_CACHE", "");
+export const SHUTDOWN_AFTER_VALIDATE = getEnvBool("SHUTDOWN_AFTER_VALIDATE", false);
+export const SINGLEPLAYER = getEnvBool("SINGLEPLAYER", false);
+export const UNIVERSE_PATH = getEnv("UNIVERSE_PATH", "");
+export const VALIDATE_ASSETS = getEnvBool("VALIDATE_ASSETS", false);
+export const VALIDATE_PREFABS = getEnv("VALIDATE_PREFABS", "");
+export const VALIDATE_WORLD_GEN = getEnvBool("VALIDATE_WORLD_GEN", false);
+export const SHOW_VERSION = getEnvBool("SHOW_VERSION", false);
+export const WORLD_GEN = getEnv("WORLD_GEN", "");
 
 // =============================================================================
-// Mod Installation (CurseForge)
+// Mod Installation
 // =============================================================================
 
 export const MOD_INSTALL_MODE = getEnv("MOD_INSTALL_MODE", "off");
-export const CURSEFORGE_MOD_LIST = getEnv("CURSEFORGE_MOD_LIST", "");
-export const CURSEFORGE_API_KEY = getEnv("CURSEFORGE_API_KEY", "");
-export const CURSEFORGE_GAME_VERSION = getEnv("CURSEFORGE_GAME_VERSION", "Early Access");
-export const CURSEFORGE_MODS_DIR = getEnv(
-  "CURSEFORGE_MODS_DIR",
-  resolve(DATA_DIR, "curseforge-mods")
-);
 
 // =============================================================================
 // Config File Generation (config.json / whitelist.json)
