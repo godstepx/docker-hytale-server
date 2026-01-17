@@ -243,7 +243,10 @@ function detectCliBinaryIn(dir: string): string | null {
 function getCliBinaryPath(): string | null {
   // Check user CLI first (may have been downloaded previously or via FORCE_DOWNLOAD)
   const userCli = detectCliBinaryIn(USER_CLI_DIR);
-  if (userCli) return userCli;
+  if (userCli) {
+    logInfo(`Using user CLI: ${basename(userCli)}`);
+    return userCli;
+  }
 
   // Fall back to bundled CLI (always present in image)
   return detectCliBinaryIn(BUNDLED_CLI_DIR);
