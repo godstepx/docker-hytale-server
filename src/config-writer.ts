@@ -74,6 +74,22 @@ interface WhitelistConfig {
   list: string[];
 }
 
+const CONFIG_ENV_KEYS = [
+  "HYTALE_CONFIG_JSON",
+  "SERVER_NAME",
+  "SERVER_MOTD",
+  "SERVER_PASSWORD",
+  "MAX_PLAYERS",
+  "MAX_VIEW_RADIUS",
+  "LOCAL_COMPRESSION_ENABLED",
+  "DEFAULT_WORLD",
+  "DEFAULT_GAME_MODE",
+  "DISPLAY_TMP_TAGS_IN_STRINGS",
+  "PLAYER_STORAGE_TYPE",
+];
+
+const WHITELIST_ENV_KEYS = ["WHITELIST_JSON", "WHITELIST_ENABLED", "WHITELIST_LIST"];
+
 // =============================================================================
 // Utility Functions
 // =============================================================================
@@ -115,6 +131,21 @@ function writeJsonFile(filePath: string, data: unknown): void {
   writeFileSync(filePath, content, "utf-8");
 }
 
+function hasEnvVars(keys: string[]): boolean {
+  return keys.some((key) => isEnvSet(key));
+}
+
+function applyIfSet(
+  envKey: string,
+  label: string,
+  apply: () => void,
+  patchedFields: string[]
+): void {
+  if (!isEnvSet(envKey)) return;
+  apply();
+  patchedFields.push(label);
+}
+
 // =============================================================================
 // Default Configurations
 // =============================================================================
@@ -154,15 +185,9 @@ function getDefaultConfig(): HytaleConfig {
  * Get default whitelist.json structure
  */
 function getDefaultWhitelist(): WhitelistConfig {
-  const list = WHITELIST_LIST
-    ? WHITELIST_LIST.split(",")
-        .map((uuid) => uuid.trim())
-        .filter((uuid) => uuid.length > 0)
-    : [];
-
   return {
     enabled: WHITELIST_ENABLED,
-    list,
+    list: WHITELIST_LIST,
   };
 }
 
@@ -174,26 +199,14 @@ function getDefaultWhitelist(): WhitelistConfig {
  * Check if any config.json env vars are explicitly set
  */
 function hasConfigEnvVars(): boolean {
-  return (
-    isEnvSet("HYTALE_CONFIG_JSON") ||
-    isEnvSet("SERVER_NAME") ||
-    isEnvSet("SERVER_MOTD") ||
-    isEnvSet("SERVER_PASSWORD") ||
-    isEnvSet("MAX_PLAYERS") ||
-    isEnvSet("MAX_VIEW_RADIUS") ||
-    isEnvSet("LOCAL_COMPRESSION_ENABLED") ||
-    isEnvSet("DEFAULT_WORLD") ||
-    isEnvSet("DEFAULT_GAME_MODE") ||
-    isEnvSet("DISPLAY_TMP_TAGS_IN_STRINGS") ||
-    isEnvSet("PLAYER_STORAGE_TYPE")
-  );
+  return hasEnvVars(CONFIG_ENV_KEYS);
 }
 
 /**
  * Check if any whitelist env vars are explicitly set
  */
 function hasWhitelistEnvVars(): boolean {
-  return isEnvSet("WHITELIST_JSON") || isEnvSet("WHITELIST_ENABLED") || isEnvSet("WHITELIST_LIST");
+  return hasEnvVars(WHITELIST_ENV_KEYS);
 }
 
 /**
@@ -238,46 +251,45 @@ function writeConfigJson(): void {
   const patched = { ...existing };
   const patchedFields: string[] = [];
 
-  if (isEnvSet("SERVER_NAME")) {
+  applyIfSet("SERVER_NAME", "ServerName", () => {
     patched.ServerName = SERVER_NAME;
-    patchedFields.push("ServerName");
-  }
-  if (isEnvSet("SERVER_MOTD")) {
+  }, patchedFields);
+
+  applyIfSet("SERVER_MOTD", "MOTD", () => {
     patched.MOTD = SERVER_MOTD;
-    patchedFields.push("MOTD");
-  }
-  if (isEnvSet("SERVER_PASSWORD")) {
+  }, patchedFields);
+
+  applyIfSet("SERVER_PASSWORD", "Password", () => {
     patched.Password = SERVER_PASSWORD;
-    patchedFields.push("Password");
-  }
-  if (isEnvSet("MAX_PLAYERS")) {
+  }, patchedFields);
+
+  applyIfSet("MAX_PLAYERS", "MaxPlayers", () => {
     patched.MaxPlayers = MAX_PLAYERS;
-    patchedFields.push("MaxPlayers");
-  }
-  if (isEnvSet("MAX_VIEW_RADIUS")) {
+  }, patchedFields);
+
+  applyIfSet("MAX_VIEW_RADIUS", "MaxViewRadius", () => {
     patched.MaxViewRadius = MAX_VIEW_RADIUS;
-    patchedFields.push("MaxViewRadius");
-  }
-  if (isEnvSet("LOCAL_COMPRESSION_ENABLED")) {
+  }, patchedFields);
+
+  applyIfSet("LOCAL_COMPRESSION_ENABLED", "LocalCompressionEnabled", () => {
     patched.LocalCompressionEnabled = LOCAL_COMPRESSION_ENABLED;
-    patchedFields.push("LocalCompressionEnabled");
-  }
-  if (isEnvSet("DEFAULT_WORLD")) {
+  }, patchedFields);
+
+  applyIfSet("DEFAULT_WORLD", "Defaults.World", () => {
     patched.Defaults = { ...patched.Defaults, World: DEFAULT_WORLD };
-    patchedFields.push("Defaults.World");
-  }
-  if (isEnvSet("DEFAULT_GAME_MODE")) {
+  }, patchedFields);
+
+  applyIfSet("DEFAULT_GAME_MODE", "Defaults.GameMode", () => {
     patched.Defaults = { ...patched.Defaults, GameMode: DEFAULT_GAME_MODE };
-    patchedFields.push("Defaults.GameMode");
-  }
-  if (isEnvSet("DISPLAY_TMP_TAGS_IN_STRINGS")) {
+  }, patchedFields);
+
+  applyIfSet("DISPLAY_TMP_TAGS_IN_STRINGS", "DisplayTmpTagsInStrings", () => {
     patched.DisplayTmpTagsInStrings = DISPLAY_TMP_TAGS_IN_STRINGS;
-    patchedFields.push("DisplayTmpTagsInStrings");
-  }
-  if (isEnvSet("PLAYER_STORAGE_TYPE")) {
+  }, patchedFields);
+  
+  applyIfSet("PLAYER_STORAGE_TYPE", "PlayerStorage.Type", () => {
     patched.PlayerStorage = { ...patched.PlayerStorage, Type: PLAYER_STORAGE_TYPE };
-    patchedFields.push("PlayerStorage.Type");
-  }
+  }, patchedFields);
 
   if (patchedFields.length > 0) {
     writeJsonFile(CONFIG_FILE, patched);
@@ -327,18 +339,12 @@ function writeWhitelistJson(): void {
   const patched = { ...existing };
   const patchedFields: string[] = [];
 
-  if (isEnvSet("WHITELIST_ENABLED")) {
+  applyIfSet("WHITELIST_ENABLED", "enabled", () => {
     patched.enabled = WHITELIST_ENABLED;
-    patchedFields.push("enabled");
-  }
-  if (isEnvSet("WHITELIST_LIST")) {
-    patched.list = WHITELIST_LIST
-      ? WHITELIST_LIST.split(",")
-          .map((uuid) => uuid.trim())
-          .filter((uuid) => uuid.length > 0)
-      : [];
-    patchedFields.push("list");
-  }
+  }, patchedFields);
+  applyIfSet("WHITELIST_LIST", "list", () => {
+    patched.list = WHITELIST_LIST;
+  }, patchedFields);
 
   if (patchedFields.length > 0) {
     writeJsonFile(WHITELIST_FILE, patched);
