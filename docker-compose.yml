@@ -15,7 +15,3 @@ services:
     environment:
       - JAVA_XMS=1G
       - JAVA_XMX=4G
-      - JAVA_OPTS=-Xlog:aot
-      - MOD_INSTALL_MODE=curseforge
-      - CURSEFORGE_API_KEY=$$2a$$10$$hbfiubeWRyAx08FFf45FAOEJYhxIOuhQjOPtTs048GRLt04V8FrvC
-      - CURSEFORGE_MOD_LIST=1418291,1405415:7470393
