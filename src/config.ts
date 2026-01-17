@@ -74,7 +74,7 @@ export const LOG_DIR = resolve(DATA_DIR, "logs");
 
 // File paths
 export const DATA_SERVER_JAR = resolve(SERVER_DIR, "HytaleServer.jar");
-export const SERVER_JAR = resolve("c", "HytaleServer.jar");
+export const SERVER_JAR = "/usr/local/lib/hytale/HytaleServer.jar";
 export const ASSETS_FILE = resolve(DATA_DIR, "Assets.zip");
 export const VERSION_FILE = resolve(DATA_DIR, ".version");
 export const AOT_CACHE = resolve(SERVER_DIR, "HytaleServer.aot");
