@@ -28,6 +28,7 @@ import {
   JAVA_XMX,
   JAVA_OPTS,
   ENABLE_AOT_CACHE,
+  ENABLE_JVM_TUNING,
   BIND_ADDRESS,
   SERVER_PORT,
   AUTH_MODE,
@@ -127,43 +128,45 @@ export function buildJavaArgs(sessionTokens: SessionTokens | null): string[] {
   // Based on Aikar's flags (widely used for Minecraft servers) adapted for Hytale.
   // Reference: https://docs.papermc.io/paper/aikars-flags
   // ==========================================================================
-  args.push(
-    // Use G1 Garbage Collector - best for large heaps with low pause time requirements
-    "-XX:+UseG1GC",
-    // Process references in parallel during GC (reduces pause times)
-    "-XX:+ParallelRefProcEnabled",
-    // Target max GC pause of 200ms - balances throughput vs latency
-    "-XX:MaxGCPauseMillis=200",
-    // Required for some G1 tuning flags below
-    "-XX:+UnlockExperimentalVMOptions",
-    // Ignore System.gc() calls - prevents plugins/mods from triggering full GC
-    "-XX:+DisableExplicitGC",
-    // Pre-touch heap on startup - trades slower start for consistent runtime
-    "-XX:+AlwaysPreTouch",
-    // 30-40% young gen sizing reduces minor GC frequency
-    "-XX:G1NewSizePercent=30",
-    "-XX:G1MaxNewSizePercent=40",
-    // 8MB heap regions - good balance for 4-16GB heaps
-    "-XX:G1HeapRegionSize=8M",
-    // Reserve 20% for emergency evacuation - prevents full GC under load
-    "-XX:G1ReservePercent=20",
-    // Allow 5% wasted space to reduce GC frequency
-    "-XX:G1HeapWastePercent=5",
-    // Process old gen in 4 cycles (smoother performance)
-    "-XX:G1MixedGCCountTarget=4",
-    // Start concurrent marking at 15% heap (aggressive but reduces pauses)
-    "-XX:InitiatingHeapOccupancyPercent=15",
-    // Only collect regions with <90% live data
-    "-XX:G1MixedGCLiveThresholdPercent=90",
-    // Limit remembered set update to 5% of pause time
-    "-XX:G1RSetUpdatingPauseTimePercent=5",
-    // Promote objects to old gen faster (game server allocation pattern)
-    "-XX:SurvivorRatio=32",
-    // Disable perf shared memory file - reduces I/O overhead
-    "-XX:+PerfDisableSharedMem",
-    // Promote after 1 GC cycle (reduces young gen churn)
-    "-XX:MaxTenuringThreshold=1"
-  );
+  if (ENABLE_JVM_TUNING) {
+    args.push(
+      // Use G1 Garbage Collector - best for large heaps with low pause time requirements
+      "-XX:+UseG1GC",
+      // Process references in parallel during GC (reduces pause times)
+      "-XX:+ParallelRefProcEnabled",
+      // Target max GC pause of 200ms - balances throughput vs latency
+      "-XX:MaxGCPauseMillis=200",
+      // Required for some G1 tuning flags below
+      "-XX:+UnlockExperimentalVMOptions",
+      // Ignore System.gc() calls - prevents plugins/mods from triggering full GC
+      "-XX:+DisableExplicitGC",
+      // Pre-touch heap on startup - trades slower start for consistent runtime
+      "-XX:+AlwaysPreTouch",
+      // 30-40% young gen sizing reduces minor GC frequency
+      "-XX:G1NewSizePercent=30",
+      "-XX:G1MaxNewSizePercent=40",
+      // 8MB heap regions - good balance for 4-16GB heaps
+      "-XX:G1HeapRegionSize=8M",
+      // Reserve 20% for emergency evacuation - prevents full GC under load
+      "-XX:G1ReservePercent=20",
+      // Allow 5% wasted space to reduce GC frequency
+      "-XX:G1HeapWastePercent=5",
+      // Process old gen in 4 cycles (smoother performance)
+      "-XX:G1MixedGCCountTarget=4",
+      // Start concurrent marking at 15% heap (aggressive but reduces pauses)
+      "-XX:InitiatingHeapOccupancyPercent=15",
+      // Only collect regions with <90% live data
+      "-XX:G1MixedGCLiveThresholdPercent=90",
+      // Limit remembered set update to 5% of pause time
+      "-XX:G1RSetUpdatingPauseTimePercent=5",
+      // Promote objects to old gen faster (game server allocation pattern)
+      "-XX:SurvivorRatio=32",
+      // Disable perf shared memory file - reduces I/O overhead
+      "-XX:+PerfDisableSharedMem",
+      // Promote after 1 GC cycle (reduces young gen churn)
+      "-XX:MaxTenuringThreshold=1"
+    );
+  }
 
   // Allow native access used by Netty to avoid Java warnings
   args.push("--enable-native-access=ALL-UNNAMED");
