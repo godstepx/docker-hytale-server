@@ -106,6 +106,7 @@ export const JAVA_XMS = getEnv("JAVA_XMS", "1G");
 export const JAVA_XMX = getEnv("JAVA_XMX", "4G");
 export const JAVA_OPTS = getEnv("JAVA_OPTS", "");
 export const ENABLE_AOT_CACHE = getEnvBool("ENABLE_AOT_CACHE", true);
+export const ENABLE_JVM_TUNING = getEnvBool("ENABLE_JVM_TUNING", true);
 
 // =============================================================================
 // Server Configuration

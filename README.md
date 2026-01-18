@@ -170,6 +170,7 @@ Set `DIAGNOSTICS=true` to run basic startup checks for port validity, `/tmp` wri
 | `JAVA_XMX` | `4G` | Maximum heap size |
 | `JAVA_OPTS` | - | Additional JVM options (space-separated) |
 | `ENABLE_AOT_CACHE` | `true` | Use AOT cache for faster startup (Java 25+) |
+| `ENABLE_JVM_TUNING` | `true` | Enable built-in G1GC tuning flags |
 | **Server Options** |||
 | `SERVER_PORT` | `5520` | UDP port (QUIC) |
 | `BIND_ADDRESS` | `0.0.0.0` | Address to bind the server to |
