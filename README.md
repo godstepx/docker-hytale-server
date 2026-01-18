@@ -5,8 +5,6 @@
 [![GitHub stars](https://img.shields.io/github/stars/godstepx/docker-hytale-server?style=for-the-badge&logo=github&logoColor=white)](https://github.com/godstepx/docker-hytale-server)
 [![GitHub last commit](https://img.shields.io/github/last-commit/godstepx/docker-hytale-server?style=for-the-badge&logo=git&logoColor=white)](https://github.com/godstepx/docker-hytale-server)
 [![License](https://img.shields.io/github/license/godstepx/docker-hytale-server?style=for-the-badge&logo=github&logoColor=white)](https://github.com/godstepx/docker-hytale-server/blob/main/LICENSE)
-[![GHCR pulls](https://img.shields.io/ghcr/pulls/godstepx/docker-hytale-server?label=pulls&style=for-the-badge&logo=docker&logoColor=white)](https://github.com/godstepx/docker-hytale-server/pkgs/container/docker-hytale-server)
-[![GHCR image size](https://img.shields.io/ghcr/size/godstepx/docker-hytale-server/latest?label=size&style=for-the-badge&logo=docker&logoColor=white)](https://github.com/godstepx/docker-hytale-server/pkgs/container/docker-hytale-server)
 
 🐳 Docker image for self-hosting Hytale Dedicated Servers with OAuth handling, flexible download modes, and easy configuration.
 
