@@ -371,19 +371,14 @@ Updates are checked automatically on startup when `DOWNLOAD_MODE=cli` and `CHECK
 
 To force a re-download even if you are already up to date, set `FORCE_DOWNLOAD=true`.
 
-### View Installed Version
-```bash
-docker run --rm -v hytale-data:/data alpine cat /data/.version
-```
-
 ## Development
 
 This project uses [Just](https://github.com/casey/just) as a command runner for common development tasks. The server scripts are written in TypeScript and compiled to standalone binaries using Bun.
 
 ### Prerequisites
 - Docker
-- [Just](https://github.com/casey/just#installation) (`brew install just` on macOS)
-- [Bun](https://bun.sh) (for local development and testing)
+- [Just](https://github.com/casey/just#installation)
+- [Bun](https://bun.sh)
 - hadolint (for Dockerfile linting)
 
 ### Available Commands
