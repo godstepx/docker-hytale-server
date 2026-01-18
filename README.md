@@ -2,11 +2,11 @@
 
 ![Hybuild](assets/hybuild.png)
 
-[![GitHub stars](https://img.shields.io/github/stars/godstepx/docker-hytale-server?style=for-the-badge)](https://github.com/godstepx/docker-hytale-server)
-[![GitHub last commit](https://img.shields.io/github/last-commit/godstepx/docker-hytale-server?style=for-the-badge)](https://github.com/godstepx/docker-hytale-server)
-[![License](https://img.shields.io/github/license/godstepx/docker-hytale-server?style=for-the-badge)](https://github.com/godstepx/docker-hytale-server/blob/main/LICENSE)
-[![GHCR pulls](https://img.shields.io/ghcr/pulls/godstepx/docker-hytale-server?style=for-the-badge)](https://github.com/godstepx/docker-hytale-server/pkgs/container/docker-hytale-server)
-[![GHCR image size](https://img.shields.io/ghcr/image-size/godstepx/docker-hytale-server/latest?style=for-the-badge)](https://github.com/godstepx/docker-hytale-server/pkgs/container/docker-hytale-server)
+[![GitHub stars](https://img.shields.io/github/stars/godstepx/docker-hytale-server?style=for-the-badge&logo=github&logoColor=white)](https://github.com/godstepx/docker-hytale-server)
+[![GitHub last commit](https://img.shields.io/github/last-commit/godstepx/docker-hytale-server?style=for-the-badge&logo=git&logoColor=white)](https://github.com/godstepx/docker-hytale-server)
+[![License](https://img.shields.io/github/license/godstepx/docker-hytale-server?style=for-the-badge&logo=github&logoColor=white)](https://github.com/godstepx/docker-hytale-server/blob/main/LICENSE)
+[![GHCR pulls](https://img.shields.io/ghcr/pulls/godstepx/docker-hytale-server?label=pulls&style=for-the-badge&logo=docker&logoColor=white)](https://github.com/godstepx/docker-hytale-server/pkgs/container/docker-hytale-server)
+[![GHCR image size](https://img.shields.io/ghcr/size/godstepx/docker-hytale-server/latest?label=size&style=for-the-badge&logo=docker&logoColor=white)](https://github.com/godstepx/docker-hytale-server/pkgs/container/docker-hytale-server)
 
 🐳 Docker image for self-hosting Hytale Dedicated Servers with OAuth handling, flexible download modes, and easy configuration.
 
@@ -161,7 +161,7 @@ Set `DIAGNOSTICS=true` to run basic startup checks for port validity, `/tmp` wri
 | `LAUNCHER_PATH` | - | Path to mounted launcher directory (skips download) |
 | `HYTALE_PATCHLINE` | `release` | `release` or `pre-release` |
 | `FORCE_DOWNLOAD` | `false` | Force re-download even if files exist |
-| `CHECK_UPDATES` | `true` | Check for updates on startup (auto-downloads newer versions in CLI mode) |
+| `CHECK_UPDATES` | `true` | Check for updates on startup (auto-downloads newer versions in CLI mode (or auto if CLI is the detected mode)) |
 | `SKIP_CLI_UPDATE_CHECK` | `false` | Skip CLI self-update/version check |
 | `DOWNLOAD_MAX_RETRIES` | `5` | Max retry attempts for CLI download |
 | `DOWNLOAD_INITIAL_BACKOFF` | `2` | Initial backoff seconds between retries |
@@ -242,7 +242,7 @@ All flags are documented in the official Hytale server. To see the complete list
 ```bash
 # Note: Server JAR is copied to /usr/local/lib/hytale/HytaleServer.jar at startup (read-only)
 # To see help, you need server files downloaded first
-docker run --rm -v hytale-data:/data ghcr.io/godstepx/docker-hytale-server:latest java -jar /data/server/HytaleServer.jar --help
+docker run --rm -v hytale-data:/data ghcr.io/godstepx/docker-hytale-server:latest java -jar /usr/local/lib/hytale/HytaleServer.jar --help
 ```
 
 **Authentication Modes:**
@@ -363,12 +363,13 @@ For token acquisition, see the Official Hytale Documentation [Server Provider Au
 
 The Hytale Downloader CLI is **pre-bundled** in the image at `/opt/hytale/cli/` (read-only). This eliminates the need to download the CLI at runtime. OAuth authentication tokens are still stored in `/data/.auth/` for persistence across container restarts.
 
+If the CLI returns an auth error (for example `invalid_grant` or `403 Forbidden`), the container clears `/data/.auth/credentials.json`. Restart the container to trigger the device login flow again.
+
 ## Updating
 
-### Check for Updates
-```bash
-docker run --rm -v hytale-data:/data -e FORCE_DOWNLOAD=true ghcr.io/godstepx/docker-hytale-server:latest
-```
+Updates are checked automatically on startup when `DOWNLOAD_MODE=cli` and `CHECK_UPDATES=true` (default). If a newer version is available, it will download and install it.
+
+To force a re-download even if you are already up to date, set `FORCE_DOWNLOAD=true`.
 
 ### View Installed Version
 ```bash
