@@ -7,7 +7,7 @@ the key project concepts and default guidelines. Update as needed.
 - Purpose: Docker image for self-hosting Hytale Dedicated Servers with flexible
   server file management (launcher copy, CLI download, or manual).
 - Runtime: Alpine Linux with Eclipse Temurin JRE (Java 25 by default).
-- Implementation: TypeScript compiled to standalone Bun binaries (no bash/curl/jq/unzip dependencies).
+- Implementation: TypeScript compiled to standalone Bun binaries (no bash/curl/jq; uses system unzip).
 - Entry: `/opt/hytale/bin/entrypoint` inside the container (compiled binary).
 - Security: runs as non-root user (UID/GID 1000).
 - Data: persistent `/data` volume.
@@ -31,6 +31,8 @@ the key project concepts and default guidelines. Update as needed.
 - Health checks:
   - `/opt/hytale/bin/healthcheck` binary checks Java process and UDP port 5520.
 - Logs: `/data/logs` (PID file: `/data/server.pid`).
+- Read-only JAR: copied to `/usr/local/lib/hytale/HytaleServer.jar` at startup (mode 444).
+- Machine ID: uses `/etc/machine-id` when present; otherwise persists `/data/.machine-id`.
 
 ## Repository Layout
 - `Dockerfile`: multi-stage build (Bun compilation + CLI download + production), env defaults, healthcheck, non-root user.
@@ -40,7 +42,7 @@ the key project concepts and default guidelines. Update as needed.
 - `src/config-writer.ts`: config.json and whitelist.json generation from env vars. Imported by entrypoint.
 - `src/token-manager.ts`: OAuth2 device flow, token refresh, session creation. Imported by entrypoint (not a standalone binary).
 - `src/download.ts`: download/copy server files + version tracking - imported by entrypoint.
-- `src/mod-installer.ts`: CurseForge mod installer (auto-install mode) - imported by entrypoint.
+- `src/mod-installer/`: mod installer providers and state (CurseForge today) - imported by entrypoint.
 - `src/config.ts`: centralized configuration with all env var defaults.
 - `src/healthcheck.ts`: health checks for Docker - compiled to binary.
 - `src/log-utils.ts`: logging module (imported by other TypeScript modules).
@@ -72,7 +74,7 @@ the key project concepts and default guidelines. Update as needed.
 All flags documented via `java -jar HytaleServer.jar --help`:
 - `--assets <Path>`: Asset directory
 - `--bind <InetSocketAddress>`: Address to listen on (default: 0.0.0.0:5520)
-- `--auth-mode <authenticated|offline>`: Authentication mode (default: authenticated)
+- `--auth-mode <authenticated|offline|insecure>`: Authentication mode (default: authenticated)
 - `--session-token <token>`: Pre-configured session token (JWT)
 - `--identity-token <token>`: Pre-configured identity token (JWT)
 - `--owner-uuid <uuid>`: Profile UUID for session
@@ -112,28 +114,33 @@ Based on Aikar's flags (widely used for Minecraft servers), adapted for Hytale.
 ## Environment Variables (Key)
 - Download: `DOWNLOAD_MODE`, `HYTALE_CLI_URL`, `LAUNCHER_PATH`,
   `HYTALE_PATCHLINE`, `FORCE_DOWNLOAD`, `CHECK_UPDATES`.
-- Paths: `BUNDLED_CLI_DIR` (default: `/opt/hytale/cli`), `DATA_DIR` (default: `/data`).
+- Paths: `DATA_DIR` (default: `/data`).
 - Java: `JAVA_XMS`, `JAVA_XMX`, `JAVA_OPTS`, `ENABLE_AOT_CACHE`.
 - Server: `SERVER_PORT`, `BIND_ADDRESS`, `AUTH_MODE`, `DISABLE_SENTRY`,
   `ENABLE_BACKUPS`, `BACKUP_FREQUENCY`, `BACKUP_DIR`, `BACKUP_MAX_COUNT`, `ACCEPT_EARLY_PLUGINS`, `ALLOW_OP`.
 - Config generation: `HYTALE_CONFIG_JSON`, `SERVER_NAME`, `SERVER_MOTD`, `SERVER_PASSWORD`,
   `MAX_PLAYERS`, `MAX_VIEW_RADIUS`, `LOCAL_COMPRESSION_ENABLED`, `DEFAULT_WORLD`,
   `DEFAULT_GAME_MODE`, `DISPLAY_TMP_TAGS_IN_STRINGS`, `PLAYER_STORAGE_TYPE`.
-- Whitelist: `WHITELIST_ENABLED`, `WHITELIST_LIST` (comma-separated), `WHITELIST_JSON`.
+- Whitelist: `WHITELIST_ENABLED`, `WHITELIST_LIST` (comma/newline-separated), `WHITELIST_JSON`.
 - Advanced: `TRANSPORT_TYPE`, `BOOT_COMMANDS`, `ADDITIONAL_MODS_DIR`, `ADDITIONAL_PLUGINS_DIR`,
-  `SERVER_LOG_LEVEL`, `HYTALE_OWNER_NAME`.
+  `SERVER_LOG_LEVEL`, `HYTALE_OWNER_NAME`,
+  `BARE_MODE`, `CLIENT_PID`, `DISABLE_ASSET_COMPARE`, `DISABLE_CPB_BUILD`, `DISABLE_FILE_WATCHER`,
+  `EVENT_DEBUG`, `FORCE_NETWORK_FLUSH`, `GENERATE_SCHEMA`, `MIGRATE_WORLDS`, `MIGRATIONS`,
+  `PREFAB_CACHE`, `SHUTDOWN_AFTER_VALIDATE`, `SINGLEPLAYER`, `UNIVERSE_PATH`, `VALIDATE_ASSETS`,
+  `VALIDATE_PREFABS`, `VALIDATE_WORLD_GEN`, `SHOW_VERSION`, `WORLD_GEN`.
 - Mods (CurseForge): `MOD_INSTALL_MODE`, `CURSEFORGE_MODS_DIR`, `CURSEFORGE_MOD_LIST`,
   `CURSEFORGE_API_KEY`, `CURSEFORGE_GAME_VERSION`.
 - Auth tokens (for hosting providers): `HYTALE_SERVER_SESSION_TOKEN`, `HYTALE_SERVER_IDENTITY_TOKEN`, `HYTALE_OWNER_UUID`.
 - Auth behavior: `AUTO_AUTH_ON_START` (default: true), `OAUTH_REFRESH_CHECK_INTERVAL` (default: 24h), `OAUTH_REFRESH_THRESHOLD_DAYS` (default: 7).
-- Logging: `CONTAINER_LOG_LEVEL`, `LOG_RETENTION_DAYS` (default: 7, deletes old server logs).
-- Misc: `DRY_RUN`, `TZ`.
+- Logging: `CONTAINER_LOG_LEVEL`, `LOG_RETENTION_DAYS` (default: 7, deletes old server logs), `NO_COLOR`.
+- Misc: `DRY_RUN`.
 
 ## Data Layout
 
 ### Image paths (read-only)
 - `/opt/hytale/bin/`: compiled binaries (entrypoint, healthcheck).
 - `/opt/hytale/cli/`: **bundled Hytale Downloader CLI** (pre-downloaded at build time).
+- `/usr/local/lib/hytale/`: read-only server JAR copy.
 
 ### Volume /data (persistent, writable)
 - `/data/server/`: server binaries (`HytaleServer.jar`, AOT cache).
@@ -147,7 +154,8 @@ Based on Aikar's flags (widely used for Minecraft servers), adapted for Hytale.
   - `.oauth-tokens.json`: OAuth access/refresh tokens (30-day refresh token TTL).
 - `/data/.hytale-cli/`: fallback CLI location (backward compatibility, rarely used).
 - `/data/.version`: installed version metadata.
-- `/data/.mods-cache.json`: cached mod metadata for CurseForge installs.
+- `/data/.mods-state.json`: mod installer state (auto-managed).
+- `/data/.machine-id`: persistent machine-id used when host ID is not mounted.
 - `/data/logs/`: server logs.
 - `/data/backups/`: automatic backups (if enabled).
 
@@ -191,9 +199,6 @@ Based on Aikar's flags (widely used for Minecraft servers), adapted for Hytale.
   - Add build script to `package.json` if creating a new binary.
   - Update Dockerfile to copy the new binary.
   - Follow existing patterns for error handling and DRY_RUN mode.
-
-## TODO / Open Areas
-- Version comparison is not implemented (only prints latest available version).
 
 ## Editing This File
 This file is intended to be updated over time. Replace or refine guidelines,
