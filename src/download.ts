@@ -104,15 +104,20 @@ function buildCliArgs(args: string[]): string[] {
 /**
  * Run CLI command synchronously (for quick commands like -print-version)
  */
-function runCliSync(args: string[]): { exitCode: number; stdout: string } {
+function runCliSync(args: string[]): { exitCode: number; stdout: string; stderr: string; output: string } {
   // Ensure auth cache directory exists before CLI runs
   mkdirSync(AUTH_CACHE, { recursive: true });
 
   const cliBin = getOrResolveCli();
   const proc = Bun.spawnSync([cliBin, ...buildCliArgs(args)]);
+  const stdout = new TextDecoder().decode(proc.stdout).trim();
+  const stderr = new TextDecoder().decode(proc.stderr).trim();
+  const output = [stdout, stderr].filter(Boolean).join("\n");
   return {
     exitCode: proc.exitCode ?? 1,
-    stdout: new TextDecoder().decode(proc.stdout).trim(),
+    stdout,
+    stderr,
+    output,
   };
 }
 
@@ -138,13 +143,29 @@ type CliResult = {
 
 async function captureCliOutput(
   stream: ReadableStream<Uint8Array> | null,
-  writeTo: NodeJS.WriteStream
+  logLine: (message: string) => void
 ): Promise<string> {
   if (!stream) return "";
   const chunks: Uint8Array[] = [];
+  const decoder = new TextDecoder();
+  let buffer = "";
   for await (const chunk of stream) {
-    writeTo.write(chunk);
+    const text = decoder.decode(chunk);
+    buffer += text.replace(/\r/g, "\n");
+    let index = buffer.indexOf("\n");
+    while (index >= 0) {
+      const line = buffer.slice(0, index).trimEnd();
+      if (line.length > 0) {
+        logLine(`[CLI] ${line}`);
+      }
+      buffer = buffer.slice(index + 1);
+      index = buffer.indexOf("\n");
+    }
     chunks.push(chunk);
+  }
+  const remaining = buffer.trimEnd();
+  if (remaining.length > 0) {
+    logLine(`[CLI] ${remaining}`);
   }
   if (!chunks.length) return "";
   const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
@@ -172,8 +193,8 @@ async function runCliAsync(args: string[]): Promise<CliResult> {
   });
 
   const [stdout, stderr, exitCode] = await Promise.all([
-    captureCliOutput(proc.stdout, process.stdout),
-    captureCliOutput(proc.stderr, process.stderr),
+    captureCliOutput(proc.stdout, logInfo),
+    captureCliOutput(proc.stderr, logWarn),
     proc.exited,
   ]);
 
@@ -196,12 +217,21 @@ function handleCliAuthFailure(output: string): void {
   if (existsSync(CLI_CREDENTIALS_PATH)) {
     try {
       rmSync(CLI_CREDENTIALS_PATH, { force: true });
-      logWarn("CLI auth token expired or revoked. Cleared credentials.json; re-auth required.");
+      logWarn("CLI auth expired or missing. credentials.json was cleared. Restart the container to re-auth.");
     } catch (error) {
       logWarn(`Failed to clear CLI credentials.json: ${error}`);
     }
   } else {
     logWarn("CLI auth token expired or revoked. Re-auth required.");
+  }
+}
+
+
+async function checkCliAuth(): Promise<void> {
+  const result = await runCliAsync(["-print-version"]);
+  if (result.exitCode !== 0) {
+    handleCliAuthFailure(result.output);
+    fatal("Hytale Downloader failed. Please check the output above.");
   }
 }
 
@@ -407,12 +437,9 @@ async function downloadServerFiles(): Promise<void> {
   logSeparator();
   logInfo("Running Hytale Downloader...");
   logInfo("If this is your first time, you will need to authorize:");
+
   logSeparator();
-  console.log(""); // Blank line before CLI output
-
   const result = await runCliAsync(downloadArgs);
-
-  console.log(""); // Blank line after CLI output
   logSeparator();
 
   if (result.exitCode !== 0) {
@@ -424,32 +451,39 @@ async function downloadServerFiles(): Promise<void> {
 
   // Extract the downloaded archive
   if (existsSync(downloadPath)) {
-    // Extract directly to DATA_DIR (creates Server/ and Assets.zip there)
-    await unzipFile(downloadPath, DATA_DIR);
+    const extractDir = resolvePath("/tmp", "hytale-extract");
+    rmSync(extractDir, { recursive: true, force: true });
+    mkdirSync(extractDir, { recursive: true });
+
+    // Extract to temp dir (creates Server/ and Assets.zip there)
+    await unzipFile(downloadPath, extractDir);
 
     // Debug: List what was extracted
     try {
-      const items = readdirSync(DATA_DIR);
-      logDebug(`Extracted items in ${DATA_DIR}: ${items.join(", ")}`);
+      const items = readdirSync(extractDir);
+      logDebug(`Extracted items in ${extractDir}: ${items.join(", ")}`);
     } catch (e) {
-      logDebug(`Could not list ${DATA_DIR}: ${e}`);
+      logDebug(`Could not list ${extractDir}: ${e}`);
     }
 
-    const extractedServerDir = resolvePath(DATA_DIR, "Server");
-    const serverJar = DATA_SERVER_JAR;
+    const extractedServerDir = resolvePath(extractDir, "Server");
+    const extractedAssets = resolvePath(extractDir, "Assets.zip");
 
-    if (existsSync(serverJar)) {
-      // Files already in correct location (case-insensitive filesystem extracted to server/)
-      logDebug("Server files already in correct location");
-    } else if (existsSync(extractedServerDir)) {
-      // Case-sensitive filesystem: need to rename Server/ to server/
-      logDebug(`Renaming ${extractedServerDir} to ${SERVER_DIR}`);
-      renameSync(extractedServerDir, SERVER_DIR);
-    } else {
+    if (!existsSync(extractedServerDir)) {
       fatal("Extraction failed: Server directory not found after unzip");
     }
+    if (!existsSync(extractedAssets)) {
+      fatal("Extraction failed: Assets.zip not found after unzip");
+    }
 
-    // Assets.zip is already in the right place (DATA_DIR/Assets.zip)
+    // Replace server directory and assets from temp (handle cross-device moves)
+    rmSync(SERVER_DIR, { recursive: true, force: true });
+    await cp(extractedServerDir, SERVER_DIR, { recursive: true, force: true });
+    rmSync(extractedServerDir, { recursive: true, force: true });
+    rmSync(ASSETS_FILE, { force: true });
+    await cp(extractedAssets, ASSETS_FILE, { force: true });
+    rmSync(extractedAssets, { force: true });
+    rmSync(extractDir, { recursive: true, force: true });
 
     // Cleanup downloaded archive
     rmSync(downloadPath, { force: true });
@@ -582,9 +616,11 @@ const cliHandler: ModeHandler = {
   async ensure(): Promise<void> {
     await ensureCli();
 
+    await checkCliAuth();
+    
     const updateOk = await checkCliUpdate();
     if (!updateOk) {
-      fatal("CLI not logged in or auth expired. Please re-auth and try again.");
+      fatal("Hytale Downloader failed. Please check the output above.");
     }
 
     // Check if files already exist
