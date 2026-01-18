@@ -123,7 +123,7 @@ export function buildJavaArgs(sessionTokens: SessionTokens | null): string[] {
     args.push(`-XX:AOTCache=${AOT_CACHE}`);
   }
 
-  const gcMode = JVM_GC.toLowerCase();
+  const gcMode = JVM_GC;
   if (ENABLE_JVM_TUNING) {
     switch (gcMode) {
       case "zgc":
