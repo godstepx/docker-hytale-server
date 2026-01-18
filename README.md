@@ -1,6 +1,6 @@
 # Hytale Server Docker Image
 
-<p align="center"><img src="assets/hybuild.png" alt="Hybuild" width="720"></p>
+<p align="center"><img src="assets/hybuild.png" alt="Hybuild" width="320"></p>
 
 [![GitHub stars](https://img.shields.io/github/stars/godstepx/docker-hytale-server?style=for-the-badge&logo=github&logoColor=white)](https://github.com/godstepx/docker-hytale-server)
 [![GitHub last commit](https://img.shields.io/github/last-commit/godstepx/docker-hytale-server?style=for-the-badge&logo=git&logoColor=white)](https://github.com/godstepx/docker-hytale-server)
