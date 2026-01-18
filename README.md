@@ -171,6 +171,7 @@ Set `DIAGNOSTICS=true` to run basic startup checks for port validity, `/tmp` wri
 | `JAVA_OPTS` | - | Additional JVM options (space-separated) |
 | `ENABLE_AOT_CACHE` | `true` | Use AOT cache for faster startup (Java 25+) |
 | `ENABLE_JVM_TUNING` | `true` | Enable built-in G1GC tuning flags |
+| `JVM_GC` | `g1` | GC preset: `g1` (default), `g1-extended`, `zgc`, or `shenandoah` (may fail if unsupported by the JRE build) |
 | **Server Options** |||
 | `SERVER_PORT` | `5520` | UDP port (QUIC) |
 | `BIND_ADDRESS` | `0.0.0.0` | Address to bind the server to |
