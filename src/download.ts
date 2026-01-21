@@ -13,13 +13,13 @@ import {
   readFileSync,
   copyFileSync,
   rmSync,
-  renameSync,
   readdirSync,
 } from "fs";
-import { resolve as resolvePath, basename } from "path";
+import { resolve, basename } from "path";
 import { cp } from "fs/promises";
 import { logInfo, logWarn, logError, logDebug, logSeparator, fatal } from "./log-utils.ts";
 import { calculateBackoff } from "./utils.ts";
+import { CliResult, ModeHandler } from "./types/download.ts";
 import {
   DATA_DIR,
   BUNDLED_CLI_DIR,
@@ -40,11 +40,7 @@ import {
   DRY_RUN,
 } from "./config.ts";
 
-const CLI_CREDENTIALS_PATH = resolvePath(AUTH_CACHE, "credentials.json");
-
-interface ModeHandler {
-  ensure: () => Promise<void>;
-}
+const CLI_CREDENTIALS_PATH = resolve(AUTH_CACHE, "credentials.json");
 
 function logServerFilesReady(): void {
   logInfo("Server files ready!");
@@ -135,11 +131,6 @@ function getCliVersionCached(): string {
   cachedCliVersion = version;
   return version;
 }
-
-type CliResult = {
-  exitCode: number;
-  output: string;
-};
 
 async function captureCliOutput(
   stream: ReadableStream<Uint8Array> | null,
@@ -257,7 +248,7 @@ function detectCliBinaryIn(dir: string): string | null {
   ];
 
   for (const name of binaryNames) {
-    const candidate = resolvePath(dir, name);
+    const candidate = resolve(dir, name);
     if (existsSync(candidate)) {
       return candidate;
     }
@@ -313,7 +304,7 @@ async function downloadCli(): Promise<void> {
 
   mkdirSync(USER_CLI_DIR, { recursive: true });
 
-  const tempZipPath = resolvePath(USER_CLI_DIR, "cli-download.zip");
+  const tempZipPath = resolve(USER_CLI_DIR, "cli-download.zip");
 
   let attempt = 1;
   while (attempt <= DOWNLOAD_MAX_RETRIES) {
@@ -417,7 +408,7 @@ async function downloadServerFiles(): Promise<void> {
   clearServerFilesCache();
 
   const tempDir = "/tmp";
-  const downloadPath = resolvePath(tempDir, "hytale-game.zip");
+  const downloadPath = resolve(tempDir, "hytale-game.zip");
   mkdirSync(tempDir, { recursive: true });
 
   // Clean up any leftover archive from previous failed runs
@@ -451,7 +442,7 @@ async function downloadServerFiles(): Promise<void> {
 
   // Extract the downloaded archive
   if (existsSync(downloadPath)) {
-    const extractDir = resolvePath("/tmp", "hytale-extract");
+    const extractDir = resolve("/tmp", "hytale-extract");
     rmSync(extractDir, { recursive: true, force: true });
     mkdirSync(extractDir, { recursive: true });
 
@@ -466,8 +457,8 @@ async function downloadServerFiles(): Promise<void> {
       logDebug(`Could not list ${extractDir}: ${e}`);
     }
 
-    const extractedServerDir = resolvePath(extractDir, "Server");
-    const extractedAssets = resolvePath(extractDir, "Assets.zip");
+    const extractedServerDir = resolve(extractDir, "Server");
+    const extractedAssets = resolve(extractDir, "Assets.zip");
 
     if (!existsSync(extractedServerDir)) {
       fatal("Extraction failed: Server directory not found after unzip");
@@ -565,8 +556,8 @@ async function copyFromLauncher(): Promise<boolean> {
 
   logInfo(`Copying server files from launcher: ${LAUNCHER_PATH}`);
 
-  const launcherServer = resolvePath(LAUNCHER_PATH, "Server");
-  const launcherAssets = resolvePath(LAUNCHER_PATH, "Assets.zip");
+  const launcherServer = resolve(LAUNCHER_PATH, "Server");
+  const launcherAssets = resolve(LAUNCHER_PATH, "Assets.zip");
 
   if (!existsSync(launcherServer)) {
     logError(`Server directory not found at: ${launcherServer}`);

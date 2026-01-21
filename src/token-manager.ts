@@ -15,6 +15,14 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "fs";
 import { logInfo, logWarn, logError, logDebug, logSeparator } from "./log-utils.ts";
 import {
+  DeviceAuthResponse,
+  GameSessionResponse,
+  OAuthTokens,
+  ProfilesResponse,
+  SessionTokens,
+  TokenResponse,
+} from "./types/token-manager.ts";
+import {
   AUTH_CACHE,
   HYTALE_SERVER_SESSION_TOKEN,
   HYTALE_SERVER_IDENTITY_TOKEN,
@@ -35,54 +43,6 @@ const PROFILES_URL = "https://account-data.hytale.com/my-account/get-profiles";
 const SESSION_URL = "https://sessions.hytale.com/game-session/new";
 const CLIENT_ID = "hytale-server";
 const SCOPES = "openid offline auth:server";
-
-// =============================================================================
-// Types
-// =============================================================================
-
-export interface OAuthTokens {
-  accessToken: string;
-  refreshToken: string;
-  expiresAt: string;
-  refreshedAt?: string; // When tokens were last refreshed (for tracking refresh token age)
-}
-
-export interface SessionTokens {
-  sessionToken: string;
-  identityToken: string;
-  profileUuid: string;
-  expiresAt: string;
-}
-
-interface DeviceAuthResponse {
-  device_code: string;
-  user_code: string;
-  verification_uri: string;
-  verification_uri_complete: string;
-  expires_in: number;
-  interval: number;
-}
-
-interface TokenResponse {
-  access_token: string;
-  refresh_token?: string;
-  expires_in: number;
-  error?: string;
-}
-
-interface ProfilesResponse {
-  owner: string;
-  profiles: Array<{
-    uuid: string;
-    username: string;
-  }>;
-}
-
-interface GameSessionResponse {
-  sessionToken: string;
-  identityToken: string;
-  expiresAt: string;
-}
 
 // =============================================================================
 // Helpers
@@ -110,6 +70,9 @@ function parseTokenResponse(
   }
   if (!data.access_token) {
     throw new Error("No access token in response");
+  }
+  if (!data.expires_in) {
+    throw new Error("No expires_in in response");
   }
   if (requireRefreshToken && !data.refresh_token) {
     throw new Error("No refresh token in response");
@@ -456,7 +419,7 @@ export async function createGameSession(accessToken: string): Promise<SessionTok
     sessionToken: session.sessionToken,
     identityToken: session.identityToken,
     profileUuid: profile.uuid,
-    expiresAt: session.expiresAt,
+    expiresAt: session.expiresAt ?? "",
   };
 
   logInfo(`Session created (expires: ${session.expiresAt})`);

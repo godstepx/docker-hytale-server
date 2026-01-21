@@ -1,21 +1,15 @@
 import { MOD_INSTALL_MODE } from "../config.ts";
 import { logWarn } from "../log-utils.ts";
-import { curseForgeProvider } from "./curseforge.ts";
-import type { ProviderStateOf, ModProvider } from "./types.ts";
+import { CurseForgeProvider } from "./curseforge.ts";
+import type { ModProvider } from "../types/mod-installer.ts";
 
-const modProviders = {
-  curseforge: curseForgeProvider,
-} satisfies Record<string, ModProvider<unknown>>;
-
-export type ProviderMap = {
-  [K in keyof typeof modProviders]: ProviderStateOf<(typeof modProviders)[K]>;
+export const modProviders: Record<string, ModProvider<unknown>> = {
+  curseforge: new CurseForgeProvider(),
 };
 
 function getProvider(id: string): (typeof modProviders)[keyof typeof modProviders] | null {
-  if (id in modProviders) {
-    return modProviders[id as keyof typeof modProviders];
-  }
-  return null;
+  const provider = modProviders[id];
+  return provider ?? null;
 }
 
 export async function installMods(): Promise<void> {
