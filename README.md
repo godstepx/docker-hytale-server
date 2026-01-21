@@ -21,8 +21,6 @@ services:
     image: ghcr.io/godstepx/docker-hytale-server:latest
     container_name: hytale-server
     restart: unless-stopped
-    stdin_open: true
-    tty: true
     ports:
       - "5520:5520/udp"
     volumes:
@@ -40,7 +38,7 @@ services:
 ### 2. First Start (Authentication Required)
 
 > [!IMPORTANT]
-> On first launch, you must authenticate with your Hytale account.
+> On first launch, you must authenticate with a Hytale account that has a purchased copy of the game.
 
 ```bash
 # Start and watch the logs
@@ -189,10 +187,12 @@ Set `DIAGNOSTICS=true` to run basic startup checks for port validity, `/tmp` wri
 | `MAX_VIEW_RADIUS` | `32` | Maximum view distance |
 | `LOCAL_COMPRESSION_ENABLED` | `false` | Enable local compression |
 | `DEFAULT_WORLD` | `default` | Default world name |
-| `DEFAULT_GAME_MODE` | `Adventure` | Default game mode |
+| `DEFAULT_GAME_MODE` | `Adventure` | Default game mode (`Adventure`, `Creative`) |
 | `DISPLAY_TMP_TAGS_IN_STRINGS` | `false` | Display temporary tags in strings |
 | `PLAYER_STORAGE_TYPE` | `Hytale` | Player storage type |
 | `HYTALE_CONFIG_JSON` | - | Full JSON override for config.json |
+| `WORLD_CONFIG_JSON_<WORLD_NAME>` | - | Full JSON override for a world config (suffix is lowercased to `/data/universe/worlds/<world>/config.json`) |
+| `WORLD_<WORLD_NAME>_<SETTING>` | - | Per-world config setting (see World Configuration) |
 | **Whitelist Configuration** |||
 | `WHITELIST_ENABLED` | `false` | Enable whitelist |
 | `WHITELIST_LIST` | - | Comma/newline-separated list of player UUIDs |
@@ -234,6 +234,43 @@ Set `DIAGNOSTICS=true` to run basic startup checks for port validity, `/tmp` wri
 | `DIAGNOSTICS` | `false` | Run basic startup diagnostics (port validity, /tmp writable, memory limit, UDP buffer) |
 | `NO_COLOR` | `false` | Disable colored log output |
 | `DATA_DIR` | `/data` | Base directory for all server data |
+| **World Configuration (per-world config.json)** |||
+| `WORLD_<WORLD_NAME>_VERSION` | `4` | World config version |
+| `WORLD_<WORLD_NAME>_SEED` | `auto` | World seed (number) |
+| `WORLD_<WORLD_NAME>_WORLD_GEN_TYPE` | `Hytale` | World generation type |
+| `WORLD_<WORLD_NAME>_WORLD_GEN_NAME` | `Default` | World generation name |
+| `WORLD_<WORLD_NAME>_WORLD_MAP_TYPE` | `WorldGen` | World map type |
+| `WORLD_<WORLD_NAME>_CHUNK_STORAGE_TYPE` | `Hytale` | Chunk storage type |
+| `WORLD_<WORLD_NAME>_RESOURCE_STORAGE_TYPE` | `Hytale` | Resource storage type |
+| `WORLD_<WORLD_NAME>_GAMEPLAY_CONFIG` | `Default` | Gameplay config preset |
+| `WORLD_<WORLD_NAME>_DEATH_RESPAWN_CONTROLLER_TYPE` | `HomeOrSpawnPoint` | Respawn controller type |
+| `WORLD_<WORLD_NAME>_DEATH_ITEMS_LOSS_MODE` | `Configured` | Item loss mode (`None`, `All`, `Configured`) |
+| `WORLD_<WORLD_NAME>_DEATH_ITEMS_AMOUNT_LOSS_PERCENTAGE` | `50` | Item loss percentage |
+| `WORLD_<WORLD_NAME>_DEATH_ITEMS_DURABILITY_LOSS_PERCENTAGE` | `10` | Item durability loss percentage |
+| `WORLD_<WORLD_NAME>_IS_TICKING` | `true` | Enable world ticking |
+| `WORLD_<WORLD_NAME>_IS_BLOCK_TICKING` | `true` | Enable block ticking |
+| `WORLD_<WORLD_NAME>_IS_PVP_ENABLED` | `false` | Enable PvP |
+| `WORLD_<WORLD_NAME>_IS_FALL_DAMAGE_ENABLED` | `true` | Enable fall damage |
+| `WORLD_<WORLD_NAME>_IS_GAME_TIME_PAUSED` | `false` | Pause game time |
+| `WORLD_<WORLD_NAME>_CLIENT_EFFECTS_SUN_HEIGHT_PERCENT` | `100` | Client sun height percent |
+| `WORLD_<WORLD_NAME>_CLIENT_EFFECTS_SUN_ANGLE_DEGREES` | `0` | Client sun angle degrees |
+| `WORLD_<WORLD_NAME>_CLIENT_EFFECTS_BLOOM_INTENSITY` | `0.30000001192092896` | Client bloom intensity |
+| `WORLD_<WORLD_NAME>_CLIENT_EFFECTS_BLOOM_POWER` | `8` | Client bloom power |
+| `WORLD_<WORLD_NAME>_CLIENT_EFFECTS_SUN_INTENSITY` | `0.25` | Client sun intensity |
+| `WORLD_<WORLD_NAME>_CLIENT_EFFECTS_SUNSHAFT_INTENSITY` | `0.30000001192092896` | Client sunshaft intensity |
+| `WORLD_<WORLD_NAME>_CLIENT_EFFECTS_SUNSHAFT_SCALE_FACTOR` | `4` | Client sunshaft scale factor |
+| `WORLD_<WORLD_NAME>_IS_SPAWNING_NPC` | `true` | Enable NPC spawning |
+| `WORLD_<WORLD_NAME>_IS_SPAWN_MARKERS_ENABLED` | `true` | Enable spawn markers |
+| `WORLD_<WORLD_NAME>_IS_ALL_NPC_FROZEN` | `false` | Freeze all NPCs |
+| `WORLD_<WORLD_NAME>_IS_COMPASS_UPDATING` | `true` | Enable compass updates |
+| `WORLD_<WORLD_NAME>_IS_SAVING_PLAYERS` | `true` | Enable player saving |
+| `WORLD_<WORLD_NAME>_IS_SAVING_CHUNKS` | `true` | Enable chunk saving |
+| `WORLD_<WORLD_NAME>_SAVE_NEW_CHUNKS` | `true` | Save new chunks |
+| `WORLD_<WORLD_NAME>_IS_UNLOADING_CHUNKS` | `true` | Enable chunk unloading |
+| `WORLD_<WORLD_NAME>_IS_OBJECTIVE_MARKERS_ENABLED` | `true` | Enable objective markers |
+| `WORLD_<WORLD_NAME>_DELETE_ON_UNIVERSE_START` | `false` | Delete on universe start |
+| `WORLD_<WORLD_NAME>_DELETE_ON_REMOVE` | `false` | Delete on remove |
+
 
 ### Server Command-Line Flags
 
@@ -266,6 +303,7 @@ Enable automatic mod installation by setting `MOD_INSTALL_MODE=curseforge`. Mods
 The server always loads the default `mods` directory under `/data/mods`. Use that directory for your own custom jars, and use `CURSEFORGE_MODS_DIR` for auto-installed mods.
 CurseForge API access requires an API key; set `CURSEFORGE_API_KEY` or the container will exit on startup when `MOD_INSTALL_MODE=curseforge`.
 Set `CURSEFORGE_GAME_VERSION` to target a specific Hytale version label (ex: `Early Access`) when choosing the latest file.
+Required CurseForge dependencies are auto-resolved recursively; if a dependency lacks a matching `CURSEFORGE_GAME_VERSION`, the latest file is still used with a warning.
 
 **Mod list format:**
 - `12345` (latest file)
@@ -288,6 +326,9 @@ The container can automatically generate or patch `config.json` and `whitelist.j
 - If file doesn't exist: created with defaults
 - If file exists and env vars are set: only the specified fields are patched
 - `HYTALE_CONFIG_JSON` / `WHITELIST_JSON`: full file override (replaces entire file)
+- `WORLD_CONFIG_JSON_<WORLD_NAME>` overrides `/data/universe/worlds/<world>/config.json` (uses `UNIVERSE_PATH` when set)
+- `WORLD_<WORLD_NAME>_<SETTING>` patches per-world config fields (suffix is lowercased)
+- `Death` and `ClientEffects` blocks are only created when their env vars are provided
 
 **Example: Basic Server Configuration**
 ```yaml
@@ -304,6 +345,20 @@ environment:
 ```yaml
 environment:
   HYTALE_CONFIG_JSON: '{"Version": 3, "ServerName": "Custom", "MOTD": "", "Password": "", "MaxPlayers": 100, "MaxViewRadius": 32, "LocalCompressionEnabled": false, "Defaults": {"World": "default", "GameMode": "Adventure"}, "ConnectionTimeouts": {"JoinTimeouts": {}}, "RateLimit": {}, "Modules": {}, "LogLevels": {}, "Mods": {}, "DisplayTmpTagsInStrings": false, "PlayerStorage": {"Type": "Hytale"}}'
+```
+
+**Example: Per-World Config Override**
+```yaml
+environment:
+  WORLD_CONFIG_JSON_DEFAULT: '{"Difficulty": "Hard", "Gameplay": {"FriendlyFire": true}}'
+```
+
+**Example: Per-World Settings**
+```yaml
+environment:
+  WORLD_DEFAULT_DEATH_ITEMS_LOSS_MODE: "Configured"
+  WORLD_DEFAULT_DEATH_ITEMS_AMOUNT_LOSS_PERCENTAGE: "25"
+  WORLD_DEFAULT_IS_PVP_ENABLED: "true"
 ```
 
 ### Authentication & Token Management
@@ -349,7 +404,8 @@ For token acquisition, see the Official Hytale Documentation [Server Provider Au
 - `/data` - Everything persistent (Worlds, Configs, Logs, Auth)
   - `/data/server/` - Server files (HytaleServer.jar, AOT cache)
   - `/data/Assets.zip` - Game assets
-  - `/data/universe/` - World saves
+- `/data/universe/` - Universe root
+- `/data/universe/worlds/` - World saves and per-world config.json
   - `/data/config.json` - Server configuration (auto-generated from env vars or managed by Hytale)
   - `/data/whitelist.json` - Whitelist configuration (auto-generated from env vars)
   - `/data/.auth/` - CLI auth cache (OAuth tokens)

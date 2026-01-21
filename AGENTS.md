@@ -39,13 +39,15 @@ the key project concepts and default guidelines. Update as needed.
 - `Justfile`: development task runner (build, test, lint, format, etc.).
 - `src/entrypoint.ts`: main entrypoint - downloads files, writes configs, acquires tokens, starts Java, handles signals. Compiled to binary.
 - `src/setup.ts`: setup utilities - Java args building, file validation. Imported by entrypoint.
-- `src/config-writer.ts`: config.json and whitelist.json generation from env vars. Imported by entrypoint.
+- `src/config-writer/`: config.json, whitelist.json, and per-world config generation from env vars. Imported by entrypoint.
 - `src/token-manager.ts`: OAuth2 device flow, token refresh, session creation. Imported by entrypoint (not a standalone binary).
 - `src/download.ts`: download/copy server files + version tracking - imported by entrypoint.
-- `src/mod-installer/`: mod installer providers and state (CurseForge today) - imported by entrypoint.
+- `src/mod-installer/`: mod installer providers, shared provider base, and state (CurseForge today) - imported by entrypoint.
+- CurseForge mod installer resolves required dependencies recursively (warns on version mismatches).
 - `src/config.ts`: centralized configuration with all env var defaults.
 - `src/healthcheck.ts`: health checks for Docker - compiled to binary.
 - `src/log-utils.ts`: logging module (imported by other TypeScript modules).
+- `src/types/`: shared TypeScript types and interfaces.
 - `package.json`: Bun project manifest with build scripts.
 - `tsconfig.json`: TypeScript compiler configuration.
 - `README.md`: user-facing usage instructions and env vars.
@@ -96,6 +98,8 @@ All flags documented via `java -jar HytaleServer.jar --help`:
 1. Pre-startup via OAuth tokens passed with `--session-token` and `--identity-token` (used by this image)
 2. Post-startup via console command: `/auth login device`
 
+**Requirement:** OAuth device flow requires a Hytale account with a purchased copy of the game.
+
 The server auto-refreshes game session tokens when started with `--session-token`.
 
 Reference: https://support.hytale.com/hc/en-us/articles/45326769420827
@@ -122,6 +126,9 @@ Based on Aikar's flags (widely used for Minecraft servers), adapted for Hytale.
 - Config generation: `HYTALE_CONFIG_JSON`, `SERVER_NAME`, `SERVER_MOTD`, `SERVER_PASSWORD`,
   `MAX_PLAYERS`, `MAX_VIEW_RADIUS`, `LOCAL_COMPRESSION_ENABLED`, `DEFAULT_WORLD`,
   `DEFAULT_GAME_MODE`, `DISPLAY_TMP_TAGS_IN_STRINGS`, `PLAYER_STORAGE_TYPE`.
+- World config generation: `WORLD_CONFIG_JSON_<WORLD_NAME>`, `WORLD_<WORLD_NAME>_<SETTING>`
+  (per-world config.json). Death and ClientEffects are only written when their env vars are set.
+  Available world generation types: `normal`, `flat`, `void`.
 - Whitelist: `WHITELIST_ENABLED`, `WHITELIST_LIST` (comma/newline-separated), `WHITELIST_JSON`.
 - Advanced: `TRANSPORT_TYPE`, `BOOT_COMMANDS`, `ADDITIONAL_MODS_DIR`, `ADDITIONAL_PLUGINS_DIR`,
   `SERVER_LOG_LEVEL`, `HYTALE_OWNER_NAME`,
@@ -146,7 +153,8 @@ Based on Aikar's flags (widely used for Minecraft servers), adapted for Hytale.
 ### Volume /data (persistent, writable)
 - `/data/server/`: server binaries (`HytaleServer.jar`, AOT cache).
 - `/data/Assets.zip`: game assets.
-- `/data/universe/`: world saves.
+- `/data/universe/`: universe root.
+- `/data/universe/worlds/`: world saves and per-world config.json.
 - `/data/config.json`: server config (auto-generated from env vars or managed by Hytale).
 - `/data/whitelist.json`: whitelist config (auto-generated from env vars).
 - `/data/curseforge-mods/`: CurseForge mods directory (auto-installed mods).
