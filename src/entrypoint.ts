@@ -25,7 +25,7 @@ import {
   validateServerFiles,
   setupDirectories,
 } from "./setup.ts";
-import { writeConfigFiles } from "./config-writer.ts";
+import { writeConfigFiles } from "./config-writer/index.ts";
 import { installMods } from "./mod-installer/index.ts";
 import { runDiagnostics } from "./diagnostics.ts";
 import {

@@ -1,31 +1,19 @@
 import { existsSync, readFileSync, writeFileSync } from "fs";
-import { resolve as resolvePath } from "path";
+import { resolve } from "path";
 import { DATA_DIR } from "../config.ts";
-import type { ProviderMap } from "./index.ts";
+import type { LegacyModState, ModProviderMap, ModState, ProviderState } from "../types/mod-installer.ts";
 
-export type ProviderState<T> = {
-  entries: Record<string, T>;
-};
+const MOD_STATE_FILE = resolve(DATA_DIR, ".mods-state.json");
+const LEGACY_STATE_FILE = resolve(DATA_DIR, ".mods-cache.json");
 
-export type ModState = {
-  providers: { [K in keyof ProviderMap]?: ProviderState<ProviderMap[K]> };
-};
-
-const MOD_STATE_FILE = resolvePath(DATA_DIR, ".mods-state.json");
-const LEGACY_STATE_FILE = resolvePath(DATA_DIR, ".mods-cache.json");
-
-type LegacyModState = {
-  mods: Record<string, unknown>;
-};
-
-export function loadModState(): ModState {
+export function loadModState(): ModState<ModProviderMap> {
   if (!existsSync(MOD_STATE_FILE)) {
     return loadLegacyState();
   }
 
   try {
     const content = readFileSync(MOD_STATE_FILE, "utf-8");
-    const parsed = JSON.parse(content) as ModState;
+    const parsed = JSON.parse(content) as ModState<ModProviderMap>;
     if (!parsed.providers) return loadLegacyState();
     return parsed;
   } catch {
@@ -33,22 +21,22 @@ export function loadModState(): ModState {
   }
 }
 
-export function saveModState(cache: ModState): void {
+export function saveModState(cache: ModState<ModProviderMap>): void {
   writeFileSync(MOD_STATE_FILE, JSON.stringify(cache, null, 2), "utf-8");
 }
 
-function loadLegacyState(): ModState {
+function loadLegacyState(): ModState<ModProviderMap> {
   if (!existsSync(LEGACY_STATE_FILE)) {
     return { providers: {} };
   }
 
   try {
     const content = readFileSync(LEGACY_STATE_FILE, "utf-8");
-    const parsed = JSON.parse(content) as LegacyModState;
+    const parsed: LegacyModState = JSON.parse(content);
     if (!parsed.mods) return { providers: {} };
-    const migrated: ModState = {
+    const migrated: ModState<ModProviderMap> = {
       providers: {
-        curseforge: { entries: parsed.mods as ProviderState<ProviderMap["curseforge"]>["entries"] },
+        curseforge: { entries: parsed.mods as ProviderState<ModProviderMap["curseforge"]>["entries"] },
       },
     };
     writeFileSync(MOD_STATE_FILE, JSON.stringify(migrated, null, 2), "utf-8");
@@ -58,15 +46,15 @@ function loadLegacyState(): ModState {
   }
 }
 
-export function getProviderState<K extends keyof ProviderMap>(
-  state: ModState,
+export function getProviderState<K extends keyof ModProviderMap>(
+  state: ModState<ModProviderMap>,
   providerId: K
-): ProviderState<ProviderMap[K]> {
+): ProviderState<ModProviderMap[K]> {
   const existing = state.providers[providerId];
   if (existing) {
-    return existing as ProviderState<ProviderMap[K]>;
+    return existing;
   }
-  const created: ProviderState<ProviderMap[K]> = { entries: {} };
-  state.providers[providerId] = created as ProviderState<ProviderMap[K]>;
+  const created: ProviderState<ModProviderMap[K]> = { entries: {} };
+  state.providers[providerId] = created;
   return created;
 }

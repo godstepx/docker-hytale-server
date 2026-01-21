@@ -15,7 +15,7 @@ import { dirname } from "path";
 import { logInfo, logWarn, fatal } from "./log-utils.ts";
 import { prepareServerFiles } from "./download.ts";
 import { getModDir } from "./mod-installer/index.ts";
-import type { SessionTokens } from "./token-manager.ts";
+import type { SessionTokens } from "./types/token-manager.ts";
 import {
   DATA_DIR,
   SERVER_DIR,

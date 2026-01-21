@@ -5,6 +5,8 @@
  */
 
 import { resolve } from "path";
+import { HytaleGameMode } from "./types/hytale-config.ts";
+import { AuthMode, TransportType, JvmGc } from "./types/runtime-config.ts";
 
 // =============================================================================
 // Helper Functions
@@ -67,12 +69,7 @@ function warnSkippedEnv(key: string, value: string): void {
   console.warn(`[WARN] Invalid ${key}: ${value}. Skipping override.`);
 }
 
-export type GameMode = "Adventure" | "Creative";
-export type AuthMode = "authenticated" | "offline" | "insecure";
-export type TransportType = "QUIC" | "TCP";
-export type JvmGc = "g1" | "g1-extended" | "zgc" | "shenandoah";
-
-function normalizeGameMode(value: string): GameMode {
+function normalizeGameMode(value: string): HytaleGameMode {
   const normalized = value.trim().toLowerCase();
   if (normalized === "adventure") return "Adventure";
   if (normalized === "creative") return "Creative";
@@ -227,7 +224,7 @@ export const MAX_PLAYERS = getEnvInt("MAX_PLAYERS", 100);
 export const MAX_VIEW_RADIUS = getEnvInt("MAX_VIEW_RADIUS", 32);
 export const LOCAL_COMPRESSION_ENABLED = getEnvBool("LOCAL_COMPRESSION_ENABLED", false);
 export const DEFAULT_WORLD = getEnv("DEFAULT_WORLD", "default");
-export const DEFAULT_GAME_MODE: GameMode = normalizeGameMode(
+export const DEFAULT_GAME_MODE: HytaleGameMode = normalizeGameMode(
   getEnv("DEFAULT_GAME_MODE", "Adventure")
 );
 export const DISPLAY_TMP_TAGS_IN_STRINGS = getEnvBool("DISPLAY_TMP_TAGS_IN_STRINGS", false);
