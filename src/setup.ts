@@ -27,6 +27,7 @@ import {
   JAVA_XMS,
   JAVA_XMX,
   JAVA_OPTS,
+  JAVA_DEBUG,
   ENABLE_AOT_CACHE,
   ENABLE_JVM_TUNING,
   JVM_GC,
@@ -108,7 +109,7 @@ export function ensureReadOnlyServerJar(): void {
  */
 export function buildJavaArgs(sessionTokens: SessionTokens | null): string[] {
   const args: string[] = [];
-  const addFlag = (flag: string, enabled: boolean): void => {
+  const addFlag = (flag: string, enabled: boolean = true): void => {
     if (enabled) args.push(flag);
   };
   const addArg = (flag: string, value: string): void => {
@@ -196,35 +197,38 @@ export function buildJavaArgs(sessionTokens: SessionTokens | null): string[] {
           "-XX:MaxTenuringThreshold=1",
         ];
 
+        args.push(...g1Flags);
+
         if (gcMode === "g1-extended") {
           g1Flags.push("-XX:+UseCompactObjectHeaders");
         }
-
-        args.push(...g1Flags);
         break;
       }
     }
   }
 
   // Allow native access used by Netty to avoid Java warnings
-  args.push("--enable-native-access=ALL-UNNAMED");
+  addFlag("--enable-native-access=ALL-UNNAMED");
+
+  addFlag("-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005", JAVA_DEBUG);
 
   // Extra JVM options from environment (supports quoted args)
   if (JAVA_OPTS) {
-    args.push(...parseJavaOpts(JAVA_OPTS));
+    const extraArgs = parseJavaOpts(JAVA_OPTS);
+    args.push(...extraArgs);
   }
 
   // JAR file
-  args.push("-jar", SERVER_JAR);
+  addArg("-jar", SERVER_JAR);
 
   // Hytale server arguments
-  args.push("--assets", ASSETS_FILE);
+  addArg("--assets", ASSETS_FILE);
 
   // Bind address
-  args.push("--bind", `${BIND_ADDRESS}:${SERVER_PORT}`);
+  addArg("--bind", `${BIND_ADDRESS}:${SERVER_PORT}`);
 
   // Auth mode
-  args.push("--auth-mode", AUTH_MODE);
+  addArg("--auth-mode", AUTH_MODE);
 
   // Disable sentry
   addFlag("--disable-sentry", DISABLE_SENTRY);
@@ -232,7 +236,7 @@ export function buildJavaArgs(sessionTokens: SessionTokens | null): string[] {
   // Accept early plugins (unsupported)
   if (ACCEPT_EARLY_PLUGINS) {
     logWarn("Early plugins enabled - this is unsupported and may cause stability issues");
-    args.push("--accept-early-plugins");
+    addFlag("--accept-early-plugins");
   }
 
   // Allow operator commands
@@ -240,7 +244,7 @@ export function buildJavaArgs(sessionTokens: SessionTokens | null): string[] {
 
   // Backups
   if (ENABLE_BACKUPS) {
-    addFlag("--backup", true);
+    addFlag("--backup");
     addArg("--backup-dir", BACKUP_DIR);
     addArg("--backup-frequency", BACKUP_FREQUENCY);
     addArg("--backup-max-count", BACKUP_MAX_COUNT);
@@ -279,7 +283,7 @@ export function buildJavaArgs(sessionTokens: SessionTokens | null): string[] {
       .map((cmd) => cmd.trim())
       .filter((cmd) => cmd.length > 0);
     for (const cmd of commands) {
-      args.push("--boot-command", cmd);
+      addArg("--boot-command", cmd);
     }
     logInfo(`Boot commands configured: ${commands.length} command(s)`);
   }
@@ -312,22 +316,22 @@ export function buildJavaArgs(sessionTokens: SessionTokens | null): string[] {
   // ==========================================================================
   if (HYTALE_SERVER_SESSION_TOKEN) {
     // Hosting providers can pass tokens via environment
-    args.push("--session-token", HYTALE_SERVER_SESSION_TOKEN);
+    addArg("--session-token", HYTALE_SERVER_SESSION_TOKEN);
     if (HYTALE_SERVER_IDENTITY_TOKEN) {
-      args.push("--identity-token", HYTALE_SERVER_IDENTITY_TOKEN);
+      addArg("--identity-token", HYTALE_SERVER_IDENTITY_TOKEN);
     }
     if (HYTALE_OWNER_UUID) {
-      args.push("--owner-uuid", HYTALE_OWNER_UUID);
+      addArg("--owner-uuid", HYTALE_OWNER_UUID);
     }
     if (HYTALE_OWNER_NAME) {
-      args.push("--owner-name", HYTALE_OWNER_NAME);
+      addArg("--owner-name", HYTALE_OWNER_NAME);
     }
     logInfo("Using session tokens from environment variables");
   } else if (sessionTokens) {
     // Tokens acquired via OAuth device flow
-    args.push("--session-token", sessionTokens.sessionToken);
-    args.push("--identity-token", sessionTokens.identityToken);
-    args.push("--owner-uuid", sessionTokens.profileUuid);
+    addArg("--session-token", sessionTokens.sessionToken);
+    addArg("--identity-token", sessionTokens.identityToken);
+    addArg("--owner-uuid", sessionTokens.profileUuid);
     logInfo("Using session tokens from OAuth authentication");
   }
 
