@@ -30,6 +30,8 @@ services:
     environment:
       JAVA_XMX: "4G"
       JAVA_XMS: "1G"
+      # Optional: enable JDWP debug on port 5005
+      # JAVA_DEBUG: "true"
     # Required for interactive auth prompts and CLI progress output
     stdin_open: true
     tty: true
