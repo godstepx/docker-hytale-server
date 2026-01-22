@@ -6,7 +6,7 @@
 [![GitHub last commit](https://img.shields.io/github/last-commit/godstepx/docker-hytale-server?style=for-the-badge&logo=git&logoColor=white)](https://github.com/godstepx/docker-hytale-server)
 [![License](https://img.shields.io/github/license/godstepx/docker-hytale-server?style=for-the-badge&logo=github&logoColor=white)](https://github.com/godstepx/docker-hytale-server/blob/main/LICENSE)
 
-🐳 Docker image for self-hosting Hytale Dedicated Servers with OAuth handling, flexible download modes, and easy configuration.
+🐳 Docker image for self-hosting Hytale Dedicated Servers with account login (OAuth), flexible download modes, and easy configuration.
 
 > [!TIP]
 > **New to Hytale hosting?** Use our web-based config generator: [setuphytale.com](https://setuphytale.com)
@@ -52,6 +52,7 @@ https://oauth.accounts.hytale.com/oauth2/device/verify?user_code=XXXXXXXX
 ```
 
 **Open this URL in your browser** and log in with your Hytale account. The server will continue automatically.
+You'll be prompted in the console to log in. This usually happens after the server files are downloaded (often on the second run).
 
 ### 3. Run in Background
 
@@ -71,7 +72,7 @@ docker logs -f hytale-server
 
 ## Features
 
-- **OAuth Device Flow** - Browser-based auth on first run with token persistence
+- **Account Login** (OAuth) - Browser-based auth on first run with token persistence
 - **Flexible Downloads** - `auto`, `cli`, `launcher`, or `manual` modes
 - **Bundled CLI** - Pre-bundled Hytale Downloader CLI in the image
 - **Config Generation** - `config.json` and `whitelist.json` from env vars
@@ -137,7 +138,7 @@ docker run -d \
 ## Advanced Features
 
 ### Automatic Authentication
-The server detects existing tokens and only starts device auth when needed. Sessions are persisted in the `/data` volume.
+The server detects existing tokens and only starts login when needed. Sessions are persisted in the `/data` volume (OAuth).
 
 ### Graceful Shutdown
 The image handles `SIGTERM` to save world data before exiting.
@@ -165,6 +166,7 @@ Set `DIAGNOSTICS=true` to run basic startup checks for port validity, `/tmp` wri
 | `JAVA_XMS` | `1G` | Initial heap size |
 | `JAVA_XMX` | `4G` | Maximum heap size |
 | `JAVA_OPTS` | - | Additional JVM options (space-separated) |
+| `JAVA_DEBUG` | `false` | Enable JDWP debug on port 5005 |
 | `ENABLE_AOT_CACHE` | `true` | Use AOT cache for faster startup (Java 25+) |
 | `ENABLE_JVM_TUNING` | `true` | Enable built-in G1GC tuning flags |
 | `JVM_GC` | `g1` | GC preset: `g1` (default), `g1-extended`, `zgc`, or `shenandoah` (may fail if unsupported by the JRE build) |
@@ -234,7 +236,7 @@ Set `DIAGNOSTICS=true` to run basic startup checks for port validity, `/tmp` wri
 | `DIAGNOSTICS` | `false` | Run basic startup diagnostics (port validity, /tmp writable, memory limit, UDP buffer) |
 | `NO_COLOR` | `false` | Disable colored log output |
 | `DATA_DIR` | `/data` | Base directory for all server data |
-| **World Configuration (per-world config.json)** |||
+| **World Configuration (Basics)** |||
 | `WORLD_<WORLD_NAME>_VERSION` | `4` | World config version |
 | `WORLD_<WORLD_NAME>_SEED` | `auto` | World seed (number) |
 | `WORLD_<WORLD_NAME>_WORLD_GEN_TYPE` | `Hytale` | World generation type |
@@ -243,15 +245,22 @@ Set `DIAGNOSTICS=true` to run basic startup checks for port validity, `/tmp` wri
 | `WORLD_<WORLD_NAME>_CHUNK_STORAGE_TYPE` | `Hytale` | Chunk storage type |
 | `WORLD_<WORLD_NAME>_RESOURCE_STORAGE_TYPE` | `Hytale` | Resource storage type |
 | `WORLD_<WORLD_NAME>_GAMEPLAY_CONFIG` | `Default` | Gameplay config preset |
+| `WORLD_<WORLD_NAME>_IS_PVP_ENABLED` | `false` | Enable PvP |
+| `WORLD_<WORLD_NAME>_IS_FALL_DAMAGE_ENABLED` | `true` | Enable fall damage |
+| `WORLD_<WORLD_NAME>_IS_GAME_TIME_PAUSED` | `false` | Pause game time |
+| `WORLD_<WORLD_NAME>_IS_SPAWNING_NPC` | `true` | Enable NPC spawning |
+| `WORLD_<WORLD_NAME>_IS_SPAWN_MARKERS_ENABLED` | `true` | Enable spawn markers |
+| `WORLD_<WORLD_NAME>_IS_ALL_NPC_FROZEN` | `false` | Freeze all NPCs |
+| `WORLD_<WORLD_NAME>_IS_SAVING_PLAYERS` | `true` | Enable player saving |
+| `WORLD_<WORLD_NAME>_IS_SAVING_CHUNKS` | `true` | Enable chunk saving |
+| `WORLD_<WORLD_NAME>_IS_UNLOADING_CHUNKS` | `true` | Enable chunk unloading |
+| **World Configuration (Advanced)** |||
 | `WORLD_<WORLD_NAME>_DEATH_RESPAWN_CONTROLLER_TYPE` | `HomeOrSpawnPoint` | Respawn controller type |
 | `WORLD_<WORLD_NAME>_DEATH_ITEMS_LOSS_MODE` | `Configured` | Item loss mode (`None`, `All`, `Configured`) |
 | `WORLD_<WORLD_NAME>_DEATH_ITEMS_AMOUNT_LOSS_PERCENTAGE` | `50` | Item loss percentage |
 | `WORLD_<WORLD_NAME>_DEATH_ITEMS_DURABILITY_LOSS_PERCENTAGE` | `10` | Item durability loss percentage |
 | `WORLD_<WORLD_NAME>_IS_TICKING` | `true` | Enable world ticking |
 | `WORLD_<WORLD_NAME>_IS_BLOCK_TICKING` | `true` | Enable block ticking |
-| `WORLD_<WORLD_NAME>_IS_PVP_ENABLED` | `false` | Enable PvP |
-| `WORLD_<WORLD_NAME>_IS_FALL_DAMAGE_ENABLED` | `true` | Enable fall damage |
-| `WORLD_<WORLD_NAME>_IS_GAME_TIME_PAUSED` | `false` | Pause game time |
 | `WORLD_<WORLD_NAME>_CLIENT_EFFECTS_SUN_HEIGHT_PERCENT` | `100` | Client sun height percent |
 | `WORLD_<WORLD_NAME>_CLIENT_EFFECTS_SUN_ANGLE_DEGREES` | `0` | Client sun angle degrees |
 | `WORLD_<WORLD_NAME>_CLIENT_EFFECTS_BLOOM_INTENSITY` | `0.30000001192092896` | Client bloom intensity |
@@ -259,14 +268,8 @@ Set `DIAGNOSTICS=true` to run basic startup checks for port validity, `/tmp` wri
 | `WORLD_<WORLD_NAME>_CLIENT_EFFECTS_SUN_INTENSITY` | `0.25` | Client sun intensity |
 | `WORLD_<WORLD_NAME>_CLIENT_EFFECTS_SUNSHAFT_INTENSITY` | `0.30000001192092896` | Client sunshaft intensity |
 | `WORLD_<WORLD_NAME>_CLIENT_EFFECTS_SUNSHAFT_SCALE_FACTOR` | `4` | Client sunshaft scale factor |
-| `WORLD_<WORLD_NAME>_IS_SPAWNING_NPC` | `true` | Enable NPC spawning |
-| `WORLD_<WORLD_NAME>_IS_SPAWN_MARKERS_ENABLED` | `true` | Enable spawn markers |
-| `WORLD_<WORLD_NAME>_IS_ALL_NPC_FROZEN` | `false` | Freeze all NPCs |
 | `WORLD_<WORLD_NAME>_IS_COMPASS_UPDATING` | `true` | Enable compass updates |
-| `WORLD_<WORLD_NAME>_IS_SAVING_PLAYERS` | `true` | Enable player saving |
-| `WORLD_<WORLD_NAME>_IS_SAVING_CHUNKS` | `true` | Enable chunk saving |
 | `WORLD_<WORLD_NAME>_SAVE_NEW_CHUNKS` | `true` | Save new chunks |
-| `WORLD_<WORLD_NAME>_IS_UNLOADING_CHUNKS` | `true` | Enable chunk unloading |
 | `WORLD_<WORLD_NAME>_IS_OBJECTIVE_MARKERS_ENABLED` | `true` | Enable objective markers |
 | `WORLD_<WORLD_NAME>_DELETE_ON_UNIVERSE_START` | `false` | Delete on universe start |
 | `WORLD_<WORLD_NAME>_DELETE_ON_REMOVE` | `false` | Delete on remove |
@@ -277,13 +280,12 @@ Set `DIAGNOSTICS=true` to run basic startup checks for port validity, `/tmp` wri
 All flags are documented in the official Hytale server. To see the complete list:
 
 ```bash
-# Note: Server JAR is copied to /usr/local/lib/hytale/HytaleServer.jar at startup (read-only)
 # To see help, you need server files downloaded first
-docker run --rm -v hytale-data:/data ghcr.io/godstepx/docker-hytale-server:latest java -jar /usr/local/lib/hytale/HytaleServer.jar --help
+docker run --rm -v hytale-data:/data ghcr.io/godstepx/docker-hytale-server:latest java -jar /data/server/HytaleServer.jar --help
 ```
 
 **Authentication Modes:**
-- `authenticated` (default): Requires server authentication. Use `/auth login device` in console after first startup
+- `authenticated` (default): Requires server authentication. Use `/auth login device` in console after first startup. By default, the container will prompt you to sign in if no cached credentials are found (`AUTO_AUTH_ON_START=true`, OAuth).
 - `offline`: No authentication required (for testing only)
 - `insecure`: Disables authentication (for development/testing only)
 
@@ -363,18 +365,18 @@ environment:
 
 ### Authentication & Token Management
 
-The container automatically manages OAuth tokens for persistent authentication:
+Once you’ve signed in, the container keeps your login and reuses it on future starts. You normally won’t have to log in again unless the saved credentials expire (OAuth).
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AUTO_AUTH_ON_START` | `true` | Start device auth flow if no tokens available |
+| `AUTO_AUTH_ON_START` | `true` | Start login flow if no tokens available (OAuth) |
 | `OAUTH_REFRESH_CHECK_INTERVAL` | `86400000` | Background OAuth refresh interval in ms (24h) |
 | `OAUTH_REFRESH_THRESHOLD_DAYS` | `7` | Refresh OAuth tokens when this many days left |
 | `LOG_RETENTION_DAYS` | `7` | Delete server logs older than this (0 = disable) |
 
 **How it works:**
-1. On first start, you'll see a device auth URL - visit it to authenticate
-2. Tokens are stored in `/data/.auth/` and persist across restarts
+1. On first start, you'll see a login URL - visit it to authenticate (OAuth)
+2. Tokens are stored in `/data/.auth/` and persist across restarts (OAuth)
 3. Background refresh keeps tokens alive indefinitely (even 30+ day runs)
 4. The Hytale server handles game session refresh internally
 
@@ -417,7 +419,7 @@ For token acquisition, see the Official Hytale Documentation [Server Provider Au
 
 ### Bundled CLI
 
-The Hytale Downloader CLI is **pre-bundled** in the image at `/opt/hytale/cli/` (read-only). This eliminates the need to download the CLI at runtime. OAuth authentication tokens are still stored in `/data/.auth/` for persistence across container restarts.
+The Hytale Downloader CLI is **pre-bundled** in the image at `/opt/hytale/cli/` (read-only). This eliminates the need to download the CLI at runtime. Auth tokens (OAuth) are still stored in `/data/.auth/` for persistence across container restarts.
 
 If the CLI returns an auth error (for example `invalid_grant` or `403 Forbidden`), the container clears `/data/.auth/credentials.json`. Restart the container to trigger the device login flow again.
 

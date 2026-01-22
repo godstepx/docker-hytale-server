@@ -119,7 +119,7 @@ Based on Aikar's flags (widely used for Minecraft servers), adapted for Hytale.
 - Download: `DOWNLOAD_MODE`, `HYTALE_CLI_URL`, `LAUNCHER_PATH`,
   `HYTALE_PATCHLINE`, `FORCE_DOWNLOAD`, `CHECK_UPDATES`.
 - Paths: `DATA_DIR` (default: `/data`).
-- Java: `JAVA_XMS`, `JAVA_XMX`, `JAVA_OPTS`, `ENABLE_AOT_CACHE`, `ENABLE_JVM_TUNING`, `JVM_GC` (`g1`, `g1-extended`, `zgc`, `shenandoah`).
+- Java: `JAVA_XMS`, `JAVA_XMX`, `JAVA_OPTS`, `JAVA_DEBUG`, `ENABLE_AOT_CACHE`, `ENABLE_JVM_TUNING`, `JVM_GC` (`g1`, `g1-extended`, `zgc`, `shenandoah`).
   - `shenandoah` requires `-XX:+UnlockExperimentalVMOptions` and may not be available in all Temurin builds.
 - Server: `SERVER_PORT`, `BIND_ADDRESS`, `AUTH_MODE`, `DISABLE_SENTRY`,
   `ENABLE_BACKUPS`, `BACKUP_FREQUENCY`, `BACKUP_DIR`, `BACKUP_MAX_COUNT`, `ACCEPT_EARLY_PLUGINS`, `ALLOW_OP`.
