@@ -36,6 +36,8 @@ type ModRequest = {
 
 type CurseForgeFile = {
   modId: number;
+  modName: string;
+  modSlug: string;
   fileId: number;
   fileName: string;
   downloadUrl: string;
@@ -59,6 +61,7 @@ type ModCache = {
 };
 
 const CURSEFORGE_API_BASE = "https://api.curseforge.com/v1";
+const CURSEFORGE_MOD_URL = "https://www.curseforge.com/hytale/mods/";
 const MOD_CACHE_FILE = resolvePath(DATA_DIR, ".mods-cache.json");
 
 function calculateBackoff(attempt: number): number {
@@ -230,6 +233,11 @@ async function validateFile(path: string, fileInfo: CurseForgeFile): Promise<boo
 }
 
 async function getModFile(modId: number, fileId?: number): Promise<CurseForgeFile> {
+  const modResponse = await fetchJsonWithRetries<{ data: any }>(
+    `${CURSEFORGE_API_BASE}/mods/${modId}`,
+    `CurseForge file list (${modId})`
+  );
+
   if (fileId) {
     const response = await fetchJsonWithRetries<{ data: any }>(
       `${CURSEFORGE_API_BASE}/mods/${modId}/files/${fileId}`,
@@ -237,6 +245,8 @@ async function getModFile(modId: number, fileId?: number): Promise<CurseForgeFil
     );
     return {
       modId,
+      modName: modResponse.data.name,
+      modSlug: modResponse.data.slug,
       fileId: response.data.id,
       fileName: response.data.fileName,
       downloadUrl: response.data.downloadUrl,
@@ -276,6 +286,8 @@ async function getModFile(modId: number, fileId?: number): Promise<CurseForgeFil
 
   return {
     modId,
+    modName: modResponse.data.name,
+    modSlug: modResponse.data.slug,
     fileId: latest.id,
     fileName: latest.fileName,
     downloadUrl: latest.downloadUrl,
@@ -413,7 +425,22 @@ export async function installCurseForgeMods(): Promise<void> {
     try {
       const fileInfo = await getModFile(mod.modId, mod.fileId);
       if (!fileInfo.downloadUrl) {
-        logWarn(`No download URL provided for mod ${mod.modId} file ${fileInfo.fileId}`);
+        if (fileInfo.fileName) {
+          const targetPath = resolvePath(CURSEFORGE_MODS_DIR, fileInfo.fileName);
+          if (existsSync(targetPath)) {
+            logInfo(
+              `Mod ${fileInfo.modName} (${fileInfo.modId}) already installed (${fileInfo.fileName})`
+            );
+            continue;
+          }
+        }
+        const downloadUrl = `${CURSEFORGE_MOD_URL}${fileInfo.modSlug}/files/${fileInfo.fileId}`;
+        logWarn(
+          `Mod ${fileInfo.modName} (${fileInfo.modId}) file ${fileInfo.fileId} prevents automatic downloading`
+        );
+        logWarn(
+          ` - You can download the mod manually from ${downloadUrl} and place it in the ${CURSEFORGE_MODS_DIR} directory`
+        );
         continue;
       }
       warnIfIncompatible(fileInfo);
@@ -454,7 +481,9 @@ export async function installCurseForgeMods(): Promise<void> {
     ) {
       const valid = await validateFile(targetPath, fileInfo);
       if (valid) {
-        logInfo(`Mod ${fileInfo.modId} already installed (${fileInfo.fileName})`);
+        logInfo(
+          `Mod ${fileInfo.modName} (${fileInfo.modId}) already installed (${fileInfo.fileName})`
+        );
         continue;
       }
     }
@@ -462,7 +491,9 @@ export async function installCurseForgeMods(): Promise<void> {
     if (existsSync(targetPath)) {
       const valid = await validateFile(targetPath, fileInfo);
       if (valid) {
-        logInfo(`Mod ${fileInfo.modId} already installed (${fileInfo.fileName})`);
+        logInfo(
+          `Mod ${fileInfo.modName} (${fileInfo.modId}) already installed (${fileInfo.fileName})`
+        );
         cache.mods[String(fileInfo.modId)] = {
           modId: fileInfo.modId,
           fileId: fileInfo.fileId,
@@ -474,16 +505,22 @@ export async function installCurseForgeMods(): Promise<void> {
         saveCache(cache);
         continue;
       }
-      logWarn(`Mod ${fileInfo.modId} checksum mismatch, re-downloading`);
+      logWarn(`Mod ${fileInfo.modName} (${fileInfo.modId}) checksum mismatch, re-downloading`);
     }
 
-    logInfo(`Downloading mod ${fileInfo.modId} file ${fileInfo.fileId}...`);
-    await downloadFile(fileInfo.downloadUrl, targetPath, `Mod ${fileInfo.modId}`);
+    logInfo(`Downloading mod ${fileInfo.modName} (${fileInfo.modId}) file ${fileInfo.fileId}...`);
+    await downloadFile(
+      fileInfo.downloadUrl,
+      targetPath,
+      `Mod ${fileInfo.modName} (${fileInfo.modId})`
+    );
 
     const valid = await validateFile(targetPath, fileInfo);
     if (!valid) {
       rmSync(targetPath, { force: true });
-      logWarn(`Checksum validation failed for mod ${fileInfo.modId}, removed file`);
+      logWarn(
+        `Checksum validation failed for mod ${fileInfo.modName} (${fileInfo.modId}), removed file`
+      );
       continue;
     }
 
@@ -497,6 +534,6 @@ export async function installCurseForgeMods(): Promise<void> {
     };
 
     saveCache(cache);
-    logInfo(`Installed mod ${fileInfo.modId} (${fileInfo.fileName})`);
+    logInfo(`Installed mod ${fileInfo.modName} (${fileInfo.modId}) (${fileInfo.fileName})`);
   }
 }
