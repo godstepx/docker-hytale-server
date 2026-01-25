@@ -139,6 +139,20 @@ docker run -d \
 
 ---
 
+## Pterodactyl (Egg)
+
+An import-ready egg is provided at `pterodactyl/egg-hytale-docker.json`.
+
+**Import & configure**
+- Import the egg (PTDL_v2) in your panel.
+- Select image: `ghcr.io/godstepx/docker-hytale-server:latest`.
+- Allocate a UDP port and map it to `SERVER_PORT` (default 5520). Hytale uses UDP/QUIC only.
+- `DATA_DIR` is pre-set to `/home/container`, so the panel’s mounted path is used for `/data`.
+- Memory: `JAVA_XMX` defaults to `{{SERVER_MEMORY}}M`; adjust via egg variable if needed.
+- First start shows the OAuth device URL in the console; complete it once to cache tokens.
+
+---
+
 ## Advanced Features
 
 ### Automatic Authentication
