@@ -477,9 +477,15 @@ just lint-ts
 just test
 
 # Optional: Docker integration tests (requires server files)
+RUN_DOCKER_TESTS=true \
 HYTALE_TEST_SERVER_JAR=/path/to/HytaleServer.jar \
 HYTALE_TEST_ASSETS_ZIP=/path/to/Assets.zip \
 just test
+
+# Defaults for integration tests (if env vars not set)
+# - hytale-data/server/HytaleServer.jar
+# - hytale-data/Assets.zip
+# Temp data mounts use ./integration-data (gitignored).
 
 # Test the container locally
 just run
