@@ -164,6 +164,8 @@ Set `DIAGNOSTICS=true` to run basic startup checks for port validity, `/tmp` wri
 | `SKIP_CLI_UPDATE_CHECK` | `false` | Skip CLI self-update/version check |
 | `DOWNLOAD_MAX_RETRIES` | `5` | Max retry attempts for CLI download |
 | `DOWNLOAD_INITIAL_BACKOFF` | `2` | Initial backoff seconds between retries |
+
+Manual mode uses existing `/data/server` and `/data/Assets.zip`. If those files are missing, the container prints setup instructions and exits.
 | **Java Options** |||
 | `JAVA_XMS` | `1G` | Initial heap size |
 | `JAVA_XMX` | `4G` | Maximum heap size |
@@ -474,8 +476,10 @@ just lint-ts
 # Run type checking
 just test
 
-# Optional: Docker smoke test (pull/build image first)
-./tests/test-options.sh
+# Optional: Docker integration tests (requires server files)
+HYTALE_TEST_SERVER_JAR=/path/to/HytaleServer.jar \
+HYTALE_TEST_ASSETS_ZIP=/path/to/Assets.zip \
+just test
 
 # Test the container locally
 just run
