@@ -239,11 +239,13 @@ async function main(): Promise<void> {
   logInfo("Ensuring server files...");
   await downloadServer();
 
-  // Phase 5: Validate files exist
-  validateServerFiles();
+  if (!DRY_RUN) {
+    // Phase 5: Validate files exist
+    validateServerFiles();
 
-  // Phase 6: Copy server JAR to read-only location
-  ensureReadOnlyServerJar();
+    // Phase 6: Copy server JAR to read-only location
+    ensureReadOnlyServerJar();
+  }
 
   // Phase 7: Install mods (if configured)
   await installMods();

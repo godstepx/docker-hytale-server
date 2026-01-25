@@ -526,22 +526,23 @@ function showManualInstructions(): void {
   logError("Server files not found!");
   logSeparator();
   logInfo(
-    `\nPlease provide server files using one of these methods:\n\n` +
+    `\nManual mode expects these files to already exist:\n` +
+      `  /data/server (Server directory)\n` +
+      `  /data/Assets.zip\n\n` +
+      `Please provide server files using one of these methods:\n\n` +
       `Option 1 (Recommended): Use Hytale Downloader CLI\n` +
-      `  Set DOWNLOAD_MODE=cli (HYTALE_CLI_URL is optional if using the bundled CLI)\n` +
-      `  Custom CLI URL: https://support.hytale.com/hc/en-us/articles/45326769420827-Hytale-Server-Manual\n\n` +
-      `Option 2: Copy from your Hytale Launcher installation\n` +
+      `  Set DOWNLOAD_MODE=cli (uses bundled CLI by default)\n` +
+      `  CLI download guide: https://support.hytale.com/hc/en-us/articles/45326769420827-Hytale-Server-Manual\n\n` +
+      `Option 2: Copy from your Hytale Launcher install\n` +
       `  Source locations:\n` +
       `    Windows: %appdata%\\Hytale\\install\\release\\package\\game\\latest\n` +
       `    Linux:   $XDG_DATA_HOME/Hytale/install/release/package/game/latest\n` +
       `    MacOS:   ~/Application Support/Hytale/install/release/package/game/latest\n\n` +
-      `  Copy 'Server/' folder and 'Assets.zip' to your data volume:\n` +
+      `  Copy 'Server/' and 'Assets.zip' into the volume:\n` +
       `    docker cp ./Server hytale-server:/data/server\n` +
       `    docker cp ./Assets.zip hytale-server:/data/Assets.zip\n\n` +
-      `Option 3: Mount launcher directory directly\n` +
-      `  docker run -v /path/to/Hytale/install/release/package/game/latest:/launcher:ro \\\n` +
-      `             -e LAUNCHER_PATH=/launcher \\\n` +
-      `             -v hytale-data:/data ...\n`
+      `Option 3: Use auto mode instead of manual\n` +
+      `  Set DOWNLOAD_MODE=auto (tries launcher, then CLI, then manual)\n\n`
   );
   logSeparator();
 }
@@ -588,8 +589,12 @@ async function copyFromLauncher(): Promise<boolean> {
 
 const manualHandler: ModeHandler = {
   async ensure(): Promise<void> {
+    if (hasExistingFiles()) {
+      logServerFilesReady();
+      return;
+    }
     showManualInstructions();
-    fatal("Server files must be provided manually. See instructions above.");
+    fatal("Manual mode requires existing /data/server and /data/Assets.zip. See instructions above.");
   },
 };
 
