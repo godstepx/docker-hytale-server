@@ -37,9 +37,41 @@ jobs:
     needs: lint
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Make scripts executable
-        run: chmod +x tests/*.sh
-      
-      - name: Run simple test
-        run: ./tests/test-options.sh
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run tests
+        env:
+          RUN_DOCKER_TESTS: "false"
+          CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
+        run: bun test
+
+  docker-integration:
+    name: Docker Integration
+    runs-on: ubuntu-latest
+    needs: lint
+    if: ${{ (vars.HYTALE_TEST_SERVER_JAR != '' && vars.HYTALE_TEST_ASSETS_ZIP != '') || (secrets.HYTALE_TEST_SERVER_JAR != '' && secrets.HYTALE_TEST_ASSETS_ZIP != '') }}
+    env:
+      RUN_DOCKER_TESTS: "true"
+      HYTALE_TEST_SERVER_JAR: ${{ vars.HYTALE_TEST_SERVER_JAR || secrets.HYTALE_TEST_SERVER_JAR }}
+      HYTALE_TEST_ASSETS_ZIP: ${{ vars.HYTALE_TEST_ASSETS_ZIP || secrets.HYTALE_TEST_ASSETS_ZIP }}
+      HYTALE_TEST_IMAGE: docker-hytale-server:test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run docker integration tests
+        run: bun test tests/integration.test.ts
