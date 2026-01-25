@@ -176,7 +176,9 @@ Based on Aikar's flags (widely used for Minecraft servers), adapted for Hytale.
   - Build: `just build` (compiles TypeScript in Docker)
   - Run (dry): `just run`
   - Run all tests: `just test` (TypeScript + integration)
-    - Integration tests require `HYTALE_TEST_SERVER_JAR` and `HYTALE_TEST_ASSETS_ZIP`
+    - Set `RUN_DOCKER_TESTS=true` to enable Docker integration tests
+    - Integration tests use `hytale-data/server/HytaleServer.jar` and `hytale-data/Assets.zip` by default, or set `HYTALE_TEST_SERVER_JAR` / `HYTALE_TEST_ASSETS_ZIP`
+    - Temp integration mounts use `./integration-data` (gitignored)
   - Lint: `just lint` (TypeScript + Dockerfile)
   - Healthcheck: run container and verify `HEALTHY`.
 
