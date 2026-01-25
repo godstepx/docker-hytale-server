@@ -30,17 +30,19 @@ services:
     environment:
       JAVA_XMX: "4G"
       JAVA_XMS: "1G"
-      # Optional: enable JDWP debug on port 5005
-      # JAVA_DEBUG: "true"
+    # Optional: enable JDWP debug on port 5005
+    # JAVA_DEBUG: "true"
     # Required for interactive auth prompts and CLI progress output
     stdin_open: true
     tty: true
 ```
 
+Hytale networking uses UDP over QUIC, so keep `/udp` in the port mapping (`5520:5520/udp`).
+
 ### 2. First Start (Authentication Required)
 
 > [!IMPORTANT]
-> On first launch, you must authenticate with a Hytale account that has a purchased copy of the game.
+> On first launch you'll authenticate once with a Hytale account (paid copy required). The container starts the device login automatically after it finishes any required downloads, so the prompt may appear near the end of the first run or immediately after a quick restart.
 
 ```bash
 # Start and watch the logs
@@ -54,7 +56,7 @@ https://oauth.accounts.hytale.com/oauth2/device/verify?user_code=XXXXXXXX
 ```
 
 **Open this URL in your browser** and log in with your Hytale account. The server will continue automatically.
-You'll be prompted in the console to log in. This usually happens after the server files are downloaded (often on the second run).
+If downloads are still finishing, the login URL may show up late in the first run or right after you restart once files are ready. You only need to complete the device login once; tokens are kept in `/data`.
 
 ### 3. Run in Background
 
@@ -152,6 +154,19 @@ Set `DIAGNOSTICS=true` to run basic startup checks for port validity, `/tmp` wri
 
 ## Environment Variables
 
+### Most commonly used
+- `DOWNLOAD_MODE` – how server files are provided (`auto`, `cli`, `launcher`, `manual`)
+- `SERVER_NAME` – display name in browser
+- `MAX_PLAYERS` – player cap
+- `DEFAULT_GAME_MODE` – `Adventure` or `Creative`
+- `WHITELIST_ENABLED` – turn whitelist on/off
+- `JAVA_XMX` – max heap (e.g., `4G`)
+
+> [!NOTE]
+> **Manual mode** expects `/data/server` and `/data/Assets.zip` to already exist. If they are missing, the container prints setup instructions and exits.
+
+Full reference:
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | **Download Options** |||
@@ -164,8 +179,6 @@ Set `DIAGNOSTICS=true` to run basic startup checks for port validity, `/tmp` wri
 | `SKIP_CLI_UPDATE_CHECK` | `false` | Skip CLI self-update/version check |
 | `DOWNLOAD_MAX_RETRIES` | `5` | Max retry attempts for CLI download |
 | `DOWNLOAD_INITIAL_BACKOFF` | `2` | Initial backoff seconds between retries |
-
-Manual mode uses existing `/data/server` and `/data/Assets.zip`. If those files are missing, the container prints setup instructions and exits.
 | **Java Options** |||
 | `JAVA_XMS` | `1G` | Initial heap size |
 | `JAVA_XMX` | `4G` | Maximum heap size |
@@ -289,7 +302,7 @@ docker run --rm -v hytale-data:/data ghcr.io/godstepx/docker-hytale-server:lates
 ```
 
 **Authentication Modes:**
-- `authenticated` (default): Requires server authentication. Use `/auth login device` in console after first startup. By default, the container will prompt you to sign in if no cached credentials are found (`AUTO_AUTH_ON_START=true`, OAuth).
+- `authenticated` (default): Requires server authentication. The container auto-starts device login when no cached tokens are present (`AUTO_AUTH_ON_START=true`). If the running server asks for login, use `/auth login device` as a manual fallback—only one flow is needed.
 - `offline`: No authentication required (for testing only)
 - `insecure`: Disables authentication (for development/testing only)
 
@@ -304,12 +317,14 @@ Set `ACCEPT_EARLY_PLUGINS=true` to acknowledge loading early plugins. This is un
 
 ### Automatic Mod Installation (CurseForge)
 
-Enable automatic mod installation by setting `MOD_INSTALL_MODE=curseforge`. Mods are installed into `CURSEFORGE_MODS_DIR` (default: `/data/curseforge-mods`), state is tracked in `/data/.mods-state.json` to avoid re-downloading, and stale cached mods are removed when they are no longer listed. This directory is added as an extra `--mods` path, so the default `mods` directory is still loaded too.
+**Install flow**
+- Set `MOD_INSTALL_MODE=curseforge` to enable. Mods install to `CURSEFORGE_MODS_DIR` (default `/data/curseforge-mods`), which is added as an extra `--mods` path while the default `/data/mods` directory still loads.
+- State is tracked in `/data/.mods-state.json` to avoid re-downloading; stale cached mods are removed when no longer listed.
+- Dependencies are resolved recursively. If `CURSEFORGE_GAME_VERSION` is set (e.g., `Early Access`), it selects matching files; otherwise the latest file is used with a warning when no match exists.
 
-The server always loads the default `mods` directory under `/data/mods`. Use that directory for your own custom jars, and use `CURSEFORGE_MODS_DIR` for auto-installed mods.
-CurseForge API access requires an API key; set `CURSEFORGE_API_KEY` or the container will exit on startup when `MOD_INSTALL_MODE=curseforge`.
-Set `CURSEFORGE_GAME_VERSION` to target a specific Hytale version label (ex: `Early Access`) when choosing the latest file.
-Required CurseForge dependencies are auto-resolved recursively; if a dependency lacks a matching `CURSEFORGE_GAME_VERSION`, the latest file is still used with a warning.
+**Notes**
+- CurseForge API access requires `CURSEFORGE_API_KEY`; the container exits if missing when `MOD_INSTALL_MODE=curseforge`.
+- Use `/data/mods` for your own jars; use `CURSEFORGE_MODS_DIR` for auto-installed mods.
 
 **Mod list format:**
 - `12345` (latest file)
@@ -383,6 +398,11 @@ Once you’ve signed in, the container keeps your login and reuses it on future 
 2. Tokens are stored in `/data/.auth/` and persist across restarts (OAuth)
 3. Background refresh keeps tokens alive indefinitely (even 30+ day runs)
 4. The Hytale server handles game session refresh internally
+
+**Container vs server login**
+- The container normally launches the OAuth device flow automatically when no cached tokens are present.
+- If the running server asks for login, use `/auth login device` in the console as a manual fallback.
+- You only need to complete one of these flows; either works.
 
 ### Token Passthrough (GSP/Hosting Providers)
 
