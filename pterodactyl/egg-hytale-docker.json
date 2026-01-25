@@ -1,0 +1,167 @@
+{
+  "_comment": "Pterodactyl egg for ghcr.io/godstepx/docker-hytale-server (bundled Hytale Downloader CLI)",
+  "meta": {
+    "version": "PTDL_v2",
+    "update_url": null
+  },
+  "exported_at": "2026-01-25T00:00:00+00:00",
+  "name": "Hytale (Docker, bundled CLI)",
+  "author": "godstepx + LordSalkin",
+  "description": "Runs ghcr.io/godstepx/docker-hytale-server with the bundled Hytale Downloader CLI, OAuth device login, and persistent data under /home/container (mapped to /data).",
+  "features": null,
+  "docker_images": {
+    "ghcr.io/godstepx/docker-hytale-server:latest": "ghcr.io/godstepx/docker-hytale-server:latest"
+  },
+  "file_denylist": [],
+  "startup": "/opt/hytale/bin/entrypoint",
+  "config": {
+    "files": "{}",
+    "startup": "{\n  \"done\": \"Server files ready!\"\n}",
+    "logs": "{}",
+    "stop": "stop"
+  },
+  "scripts": {
+    "installation": {
+      "script": "#!/bin/ash\nset -e\n# Image already contains the server binaries and downloader CLI.\nmkdir -p /home/container\n",
+      "container": "ghcr.io/parkervcp/installers:alpine",
+      "entrypoint": "ash"
+    }
+  },
+  "variables": [
+    {
+      "name": "Server Port (UDP)",
+      "description": "Port allocation used by the server. Must be a UDP allocation in Pterodactyl.",
+      "env_variable": "SERVER_PORT",
+      "default_value": "5520",
+      "user_viewable": true,
+      "user_editable": false,
+      "rules": "required|numeric|min:1|max:65535"
+    },
+    {
+      "name": "Bind Address",
+      "description": "Address to bind. Keep 0.0.0.0 for Pterodactyl.",
+      "env_variable": "BIND_ADDRESS",
+      "default_value": "0.0.0.0",
+      "user_viewable": true,
+      "user_editable": false,
+      "rules": "required|string"
+    },
+    {
+      "name": "Download Mode",
+      "description": "How server files are obtained: auto, cli, launcher, or manual.",
+      "env_variable": "DOWNLOAD_MODE",
+      "default_value": "cli",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|in:auto,cli,launcher,manual"
+    },
+    {
+      "name": "Patchline",
+      "description": "release or pre-release patchline for downloads.",
+      "env_variable": "HYTALE_PATCHLINE",
+      "default_value": "release",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|in:release,pre-release"
+    },
+    {
+      "name": "Data Directory",
+      "description": "Where persistent data is stored. Pterodactyl mounts /home/container; map it to /data internally.",
+      "env_variable": "DATA_DIR",
+      "default_value": "/home/container",
+      "user_viewable": true,
+      "user_editable": false,
+      "rules": "required|string"
+    },
+    {
+      "name": "Max Heap (XMX)",
+      "description": "Maximum JVM heap. Defaults to panel memory value.",
+      "env_variable": "JAVA_XMX",
+      "default_value": "{{SERVER_MEMORY}}M",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string"
+    },
+    {
+      "name": "Min Heap (XMS)",
+      "description": "Initial JVM heap size.",
+      "env_variable": "JAVA_XMS",
+      "default_value": "1G",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string"
+    },
+    {
+      "name": "Auto Auth On Start",
+      "description": "Start OAuth device login automatically when no tokens are cached.",
+      "env_variable": "AUTO_AUTH_ON_START",
+      "default_value": "true",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|in:true,false"
+    },
+    {
+      "name": "Check Updates",
+      "description": "Check for newer server files on startup (cli mode).",
+      "env_variable": "CHECK_UPDATES",
+      "default_value": "true",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|in:true,false"
+    },
+    {
+      "name": "Whitelist Enabled",
+      "description": "Enable whitelist (true/false).",
+      "env_variable": "WHITELIST_ENABLED",
+      "default_value": "false",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|in:true,false"
+    },
+    {
+      "name": "Server Name",
+      "description": "Displayed server name.",
+      "env_variable": "SERVER_NAME",
+      "default_value": "Hytale Server",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|max:100"
+    },
+    {
+      "name": "Max Players",
+      "description": "Player cap.",
+      "env_variable": "MAX_PLAYERS",
+      "default_value": "100",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|numeric|min:1|max:500"
+    },
+    {
+      "name": "Owner UUID (optional)",
+      "description": "Profile UUID when passing tokens manually.",
+      "env_variable": "HYTALE_OWNER_UUID",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string"
+    },
+    {
+      "name": "Session Token (optional)",
+      "description": "Pre-provisioned session token to skip device auth.",
+      "env_variable": "HYTALE_SERVER_SESSION_TOKEN",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string"
+    },
+    {
+      "name": "Identity Token (optional)",
+      "description": "Pre-provisioned identity token to skip device auth.",
+      "env_variable": "HYTALE_SERVER_IDENTITY_TOKEN",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string"
+    }
+  ]
+}

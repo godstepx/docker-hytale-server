@@ -12,7 +12,7 @@
 #   - Non-root user for security
 # =============================================================================
 
-ARG JAVA_VERSION=25
+ARG JAVA_VERSION=25.0.1_8
 ARG ALPINE_VERSION=3.20
 ARG HYTALE_CLI_URL="https://downloader.hytale.com/hytale-downloader.zip"
 
@@ -29,8 +29,9 @@ WORKDIR /build
 # Copy package files
 COPY package.json bun.lock* tsconfig.json ./
 
-# Install dependencies
-RUN bun install --frozen-lockfile
+# Install dependencies (use cache when available)
+RUN --mount=type=cache,target=/root/.bun \
+    bun install --frozen-lockfile
 
 # Copy source code
 COPY src/ ./src/
@@ -57,6 +58,7 @@ RUN ls -lh dist/ && \
 FROM alpine:${ALPINE_VERSION} AS cli-downloader
 
 ARG HYTALE_CLI_URL
+ARG TARGETARCH
 
 # Install minimal tools for download and extraction
 # hadolint ignore=DL3018
@@ -68,7 +70,21 @@ WORKDIR /cli
 RUN curl -fsSL "${HYTALE_CLI_URL}" -o hytale-cli.zip && \
     unzip -q hytale-cli.zip && \
     rm hytale-cli.zip && \
-    chmod +x hytale-downloader-* 2>/dev/null || true && \
+    case "${TARGETARCH}" in \
+      arm64) CLI_CANDIDATES="hytale-downloader-linux-arm64 hytale-downloader-linux-amd64" ;; \
+      amd64) CLI_CANDIDATES="hytale-downloader-linux-amd64" ;; \
+      *) echo "Unsupported arch: ${TARGETARCH}" && exit 1 ;; \
+    esac && \
+    for bin in ${CLI_CANDIDATES}; do \
+      if [ -f "${bin}" ]; then CLI_BIN="${bin}"; break; fi; \
+    done && \
+    if [ -z "${CLI_BIN}" ]; then \
+      echo "Expected CLI binary not found for ${TARGETARCH} in: ${CLI_CANDIDATES}" && exit 1; \
+    fi && \
+    mv "${CLI_BIN}" hytale-downloader && \
+    find . -maxdepth 1 -type f -name "hytale-downloader-*" -delete && \
+    rm -f QUICKSTART.md && \
+    chmod +x hytale-downloader && \
     ls -la
 
 # =============================================================================
@@ -77,12 +93,13 @@ RUN curl -fsSL "${HYTALE_CLI_URL}" -o hytale-cli.zip && \
 FROM eclipse-temurin:${JAVA_VERSION}-jre-alpine AS base
 
 # Install minimal runtime dependencies
-# tini for proper signal handling, libstdc++/libgcc for Bun binaries, unzip for game extraction
+# tini for proper signal handling, libstdc++/libgcc/libc6-compat/gcompat for Bun binaries and glibc-linked native libs (e.g., Netty), su-exec for privilege drop, unzip for game extraction
 # hadolint ignore=DL3018
 RUN apk add --no-cache \
     tini \
     libstdc++ \
     libgcc \
+    libc6-compat \
     gcompat \
     su-exec \
     unzip \
@@ -115,8 +132,8 @@ COPY --from=builder --chmod=755 /build/dist/healthcheck /opt/hytale/bin/healthch
 COPY --from=cli-downloader --chmod=755 /cli/ /opt/hytale/cli/
 
 # Create data directory with correct permissions
-RUN mkdir -p /data /data/logs /data/backups \
-    && chown -R hytale:hytale /data /opt/hytale
+RUN mkdir -p /data /data/logs /data/backups /usr/local/lib/hytale \
+    && chown -R hytale:hytale /data /opt/hytale /usr/local/lib/hytale
 
 # Expose UDP port (QUIC)
 EXPOSE 5520/udp

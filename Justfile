@@ -46,7 +46,7 @@ run-interactive:
 
 # Run all tests
 test: lint-ts
-    @echo "All tests passed!"
+    bun test
 
 # Run TypeScript type checking
 [private]

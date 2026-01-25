@@ -9,12 +9,9 @@ services:
     ports:
       - "5520:5520/udp"
     volumes:
-      - hytale-data:/data
+      - ./hytale-data:/data
       # Linux only: avoid "Failed to get hardware UUID" at startup
-      - /etc/machine-id:/etc/machine-id:ro
+      # - /etc/machine-id:/etc/machine-id:ro
     environment:
       - JAVA_XMS=1G
       - JAVA_XMX=4G
-
-volumes:
-  hytale-data:

@@ -15,29 +15,68 @@
  */
 
 import { Subprocess } from "bun";
-import { readdirSync, statSync, unlinkSync } from "fs";
+import { existsSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
-import { logInfo, logWarn, logError, logDebug, logBanner, die } from "./log-utils.ts";
-import { downloadServer, buildJavaArgs, validateServerFiles, setupDirectories } from "./setup.ts";
-import { writeConfigFiles } from "./config-writer.ts";
-import { installCurseForgeMods } from "./mod-installer.ts";
+import { logInfo, logWarn, logError, logDebug, logBanner, fatal } from "./log-utils.ts";
+import {
+  downloadServer,
+  ensureReadOnlyServerJar,
+  buildJavaArgs,
+  validateServerFiles,
+  setupDirectories,
+} from "./setup.ts";
+import { writeConfigFiles } from "./config-writer/index.ts";
+import { installMods } from "./mod-installer/index.ts";
+import { runDiagnostics } from "./diagnostics.ts";
 import {
   acquireSessionTokens,
   startOAuthRefreshLoop,
   stopOAuthRefreshLoop,
 } from "./token-manager.ts";
-import { DATA_DIR, LOG_DIR, LOG_RETENTION_DAYS, DRY_RUN } from "./config.ts";
+import { DATA_DIR, LOG_DIR, LOG_RETENTION_DAYS, DRY_RUN, DIAGNOSTICS } from "./config.ts";
 
 // Track the Java server process for signal handling
 let javaProcess: Subprocess | null = null;
 let isShuttingDown = false;
 let logCleanupRunning = false;
 const APP_DIR = "/opt/hytale";
+const ENTRYPOINT_PATH = `${APP_DIR}/bin/entrypoint`;
+const LOG_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const MACHINE_ID_PATH = "/etc/machine-id";
+const PERSISTENT_MACHINE_ID = join(DATA_DIR, ".machine-id");
+
+function ensureMachineId(): void {
+  try {
+    if (existsSync(MACHINE_ID_PATH)) {
+      logInfo("Using machine-id from host");
+      return;
+    }
+    
+    if (existsSync(PERSISTENT_MACHINE_ID)) {
+      const existing = readFileSync(PERSISTENT_MACHINE_ID, "utf-8");
+      writeFileSync(MACHINE_ID_PATH, existing.trim(), "utf-8");
+      logInfo("Loaded persistent machine-id from data volume");
+      return;
+    }
+
+    const uuid = new TextDecoder()
+      .decode(Bun.spawnSync(["cat", "/proc/sys/kernel/random/uuid"]).stdout ?? new Uint8Array())
+      .trim()
+      .replace(/-/g, "");
+    writeFileSync(MACHINE_ID_PATH, uuid, "utf-8");
+    writeFileSync(PERSISTENT_MACHINE_ID, uuid, "utf-8");
+    logInfo("Generated and persisted machine-id");
+  } catch (error) {
+    logWarn(`Failed to setup machine-id: ${error}`);
+  }
+}
 
 function fixPermissionsAndDropPrivileges(): void {
   if (typeof process.getuid !== "function" || process.getuid() !== 0) {
     return;
   }
+
+  ensureMachineId();
 
   logInfo("Fixing volume permissions...");
   Bun.spawnSync(["chown", "-R", "hytale:hytale", DATA_DIR], {
@@ -48,14 +87,13 @@ function fixPermissionsAndDropPrivileges(): void {
   });
 
   logInfo("Dropping privileges to hytale user...");
-  const entrypointPath = "/opt/hytale/bin/entrypoint";
   try {
-    const result = Bun.spawnSync(["su-exec", "hytale", entrypointPath, ...process.argv.slice(1)], {
+    const result = Bun.spawnSync(["su-exec", "hytale", ENTRYPOINT_PATH, ...process.argv.slice(1)], {
       stdio: ["inherit", "inherit", "inherit"],
     });
     process.exit(result.exitCode ?? 1);
   } catch (error) {
-    die(`Failed to drop privileges with su-exec: ${error}`);
+    fatal("Failed to drop privileges with su-exec", error);
   }
 }
 
@@ -76,8 +114,8 @@ function cleanupOldLogs(): void {
     let deletedCount = 0;
 
     for (const file of files) {
-      // Only clean up .log files
-      if (!file.endsWith(".log")) continue;
+      // Only clean up .log and .log.lck files
+      if (!file.endsWith(".log") && !file.endsWith(".log.lck")) continue;
 
       const filePath = join(LOG_DIR, file);
       try {
@@ -110,15 +148,14 @@ function startLogCleanupLoop(): void {
   if (LOG_RETENTION_DAYS <= 0) return;
 
   logCleanupRunning = true;
-  const intervalMs = 24 * 60 * 60 * 1000; // 24 hours
 
   setTimeout(async () => {
     while (logCleanupRunning) {
-      await Bun.sleep(intervalMs);
+      await Bun.sleep(LOG_CLEANUP_INTERVAL_MS);
       if (!logCleanupRunning) break;
       cleanupOldLogs();
     }
-  }, intervalMs); // First check after 24 hours (already ran at startup)
+  }, LOG_CLEANUP_INTERVAL_MS); // First check after 24 hours (already ran at startup)
 }
 
 /**
@@ -187,6 +224,11 @@ async function main(): Promise<void> {
   logInfo("Setting up directories...");
   setupDirectories();
 
+  // Optional: Run diagnostics
+  if (DIAGNOSTICS) {
+    runDiagnostics();
+  }
+
   // Phase 2: Clean up old logs
   cleanupOldLogs();
 
@@ -197,13 +239,18 @@ async function main(): Promise<void> {
   logInfo("Ensuring server files...");
   await downloadServer();
 
-  // Phase 5: Validate files exist
-  validateServerFiles();
+  if (!DRY_RUN) {
+    // Phase 5: Validate files exist
+    validateServerFiles();
 
-  // Phase 6: Install mods (if configured)
-  await installCurseForgeMods();
+    // Phase 6: Copy server JAR to read-only location
+    ensureReadOnlyServerJar();
+  }
 
-  // Phase 7: Acquire session tokens
+  // Phase 7: Install mods (if configured)
+  await installMods();
+
+  // Phase 8: Acquire session tokens
   logInfo("Acquiring session tokens...");
   const sessionTokens = await acquireSessionTokens();
 
@@ -217,7 +264,7 @@ async function main(): Promise<void> {
     logWarn("Use '/auth login device' in server console to authenticate");
   }
 
-  // Phase 8: Build Java command
+  // Phase 9: Build Java command
   const javaArgs = buildJavaArgs(sessionTokens);
 
   if (DRY_RUN) {
@@ -226,11 +273,11 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  // Phase 9: Start background tasks
+  // Phase 10: Start background tasks
   startOAuthRefreshLoop(); // Keeps refresh token alive for 30+ day runs
   startLogCleanupLoop(); // Daily log cleanup
 
-  // Phase 10: Start Java server
+  // Phase 11: Start Java server
   logInfo("Starting Hytale server...");
 
   javaProcess = Bun.spawn(["java", ...javaArgs], {
@@ -251,5 +298,5 @@ async function main(): Promise<void> {
 
 main().catch((error) => {
   logError(`Entrypoint failed: ${error}`);
-  die(`Fatal error: ${error}`);
+  fatal("Fatal error", error);
 });
