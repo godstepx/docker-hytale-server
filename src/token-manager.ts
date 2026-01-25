@@ -31,6 +31,7 @@ import {
   OAUTH_REFRESH_CHECK_INTERVAL,
   OAUTH_REFRESH_THRESHOLD_DAYS,
   OAUTH_TOKEN_FILE,
+  DRY_RUN,
 } from "./config.ts";
 
 // =============================================================================
@@ -231,6 +232,15 @@ export async function pollForToken(
   interval: number,
   expiresIn: number
 ): Promise<OAuthTokens> {
+  if (DRY_RUN) {
+    logInfo("[DRY_RUN] Skipping device auth polling");
+    return {
+      accessToken: "dry-run-access",
+      refreshToken: "dry-run-refresh",
+      expiresAt: buildExpiresAt(3600),
+    };
+  }
+
   const deadline = Date.now() + expiresIn * 1000;
   let pollInterval = interval * 1000;
 
