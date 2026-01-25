@@ -1,0 +1,55 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`config writer (server) patch 1`] = `
+"{
+  "ConnectionTimeouts": {
+    "JoinTimeouts": {}
+  },
+  "Defaults": {
+    "GameMode": "Creative",
+    "World": "world-alpha"
+  },
+  "DisplayTmpTagsInStrings": true,
+  "LocalCompressionEnabled": true,
+  "LogLevels": {},
+  "MaxPlayers": 42,
+  "MaxViewRadius": 16,
+  "Mods": {},
+  "Modules": {},
+  "MOTD": "Welcome",
+  "Password": "secret",
+  "PlayerStorage": {
+    "Type": "Custom"
+  },
+  "RateLimit": {},
+  "ServerName": "Test Server",
+  "Version": 3
+}"
+`;
+
+exports[`config writer (server) override 1`] = `
+"{
+  "ConnectionTimeouts": {
+    "JoinTimeouts": {}
+  },
+  "Defaults": {
+    "GameMode": "Adventure",
+    "World": "override"
+  },
+  "DisplayTmpTagsInStrings": false,
+  "LocalCompressionEnabled": false,
+  "LogLevels": {},
+  "MaxPlayers": 1,
+  "MaxViewRadius": 1,
+  "Mods": {},
+  "Modules": {},
+  "MOTD": "Override",
+  "Password": "",
+  "PlayerStorage": {
+    "Type": "Hytale"
+  },
+  "RateLimit": {},
+  "ServerName": "Override",
+  "Version": 9
+}"
+`;
