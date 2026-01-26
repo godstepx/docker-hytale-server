@@ -604,7 +604,6 @@ export async function ensureServerFiles(): Promise<void> {
       die("No automatic download method available. See instructions above.");
   }
 
-
   async function cliMode() {
     await ensureCli();
 
