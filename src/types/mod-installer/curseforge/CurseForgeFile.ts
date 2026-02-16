@@ -8,6 +8,7 @@ export type CurseForgeFile = {
   fileName: string;
   downloadUrl: string;
   fileLength: number;
+  releaseType: number;
   hashes: Record<string, string>;
   gameVersions: string[];
   dependencies?: CurseForgeDependency[];

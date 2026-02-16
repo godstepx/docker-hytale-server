@@ -246,6 +246,7 @@ Full reference:
 | `CURSEFORGE_MOD_LIST` | - | Comma/newline-separated CurseForge mod IDs (`12345` or `12345:67890`) |
 | `CURSEFORGE_API_KEY` | - | CurseForge API key (required when `MOD_INSTALL_MODE=curseforge`) |
 | `CURSEFORGE_GAME_VERSION` | `Early Access` | Hytale version label used to pick matching files |
+| `CURSEFORGE_RELEASE_CHANNEL` | `release` | File stability channel filter: `release` (stable only), `beta` (release+beta), `alpha`/`any` (all) |
 | `CURSEFORGE_MODS_DIR` | `/data/curseforge-mods` | CurseForge mods directory (added as extra `--mods` path) |
 | **Logging & Debug** |||
 | `CONTAINER_LOG_LEVEL` | `INFO` | Container log level: `DEBUG`, `INFO`, `WARN`, `ERROR` |
@@ -321,13 +322,14 @@ Set `ACCEPT_EARLY_PLUGINS=true` to acknowledge loading early plugins. This is un
 - Set `MOD_INSTALL_MODE=curseforge` to enable. Mods install to `CURSEFORGE_MODS_DIR` (default `/data/curseforge-mods`), which is added as an extra `--mods` path while the default `/data/mods` directory still loads.
 - State is tracked in `/data/.mods-state.json` to avoid re-downloading; stale cached mods are removed when no longer listed.
 - Dependencies are resolved recursively. If `CURSEFORGE_GAME_VERSION` is set (e.g., `Early Access`), it selects matching files; otherwise the latest file is used with a warning when no match exists.
+- `CURSEFORGE_RELEASE_CHANNEL` controls allowed file stability: `release` (default), `beta` (allows release+beta), `alpha`/`any` (allows release+beta+alpha). If no files match the channel, that mod is skipped with a warning.
 
 **Notes**
 - CurseForge API access requires `CURSEFORGE_API_KEY`; the container exits if missing when `MOD_INSTALL_MODE=curseforge`.
 - Use `/data/mods` for your own jars; use `CURSEFORGE_MODS_DIR` for auto-installed mods.
 
 **Mod list format:**
-- `12345` (latest file)
+- `12345` (latest file matching selected version/release channel)
 - `12345:67890` (specific file ID)
 
 **Example: Environment Variables**
@@ -336,6 +338,7 @@ environment:
   MOD_INSTALL_MODE: "curseforge"
   CURSEFORGE_API_KEY: "your-api-key"
   CURSEFORGE_GAME_VERSION: "Early Access"
+  CURSEFORGE_RELEASE_CHANNEL: "release"
   CURSEFORGE_MOD_LIST: "12345,67890:111222"
 ```
 

@@ -25,14 +25,21 @@ import { ModInstallerProvider } from "./provider.ts";
 const CURSEFORGE_API_BASE = "https://api.curseforge.com/v1";
 const CURSEFORGE_MOD_URL = "https://www.curseforge.com/hytale/mods/";
 const REQUIRED_DEPENDENCY_TYPE = 3;
+const CURSEFORGE_RELEASE_TYPE_RELEASE = 1;
+const CURSEFORGE_RELEASE_TYPE_BETA = 2;
+const CURSEFORGE_RELEASE_TYPE_ALPHA = 3;
+
+type CurseForgeReleaseChannel = "release" | "beta" | "alpha" | "any";
 
 const CURSEFORGE_MOD_LIST = getEnvList("CURSEFORGE_MOD_LIST", []);
 const CURSEFORGE_API_KEY = getEnv("CURSEFORGE_API_KEY", "");
 const CURSEFORGE_GAME_VERSION = getEnv("CURSEFORGE_GAME_VERSION", "Early Access");
+const CURSEFORGE_RELEASE_CHANNEL_RAW = getEnv("CURSEFORGE_RELEASE_CHANNEL", "release");
 const CURSEFORGE_MODS_DIR = getEnv(
   "CURSEFORGE_MODS_DIR",
   resolve(DATA_DIR, "curseforge-mods")
 );
+const CURSEFORGE_RELEASE_CHANNEL = parseReleaseChannel(CURSEFORGE_RELEASE_CHANNEL_RAW);
 
 function parseModSpec(raw: string): ModRequest | null {
   const trimmed = raw.trim();
@@ -138,6 +145,71 @@ function matchesGameVersion(gameVersions: string[], desiredVersion: string): boo
   const aliases = buildVersionAliases(desiredVersion);
   if (!aliases.size) return false;
   return gameVersions.some((version) => aliases.has(version.toLowerCase()));
+}
+
+function parseReleaseChannel(raw: string): CurseForgeReleaseChannel {
+  const normalized = raw.trim().toLowerCase();
+  if (!normalized || normalized === "release" || normalized === "stable") {
+    return "release";
+  }
+  if (
+    normalized === "beta" ||
+    normalized === "pre-release" ||
+    normalized === "pre release" ||
+    normalized === "prerelease"
+  ) {
+    return "beta";
+  }
+  if (normalized === "alpha") {
+    return "alpha";
+  }
+  if (normalized === "any" || normalized === "all" || normalized === "*") {
+    return "any";
+  }
+
+  logWarn(
+    `Invalid CURSEFORGE_RELEASE_CHANNEL="${raw}". Falling back to "release" (stable-only files).`
+  );
+  return "release";
+}
+
+function normalizeReleaseType(raw: unknown): number {
+  const value = typeof raw === "number" ? raw : Number(raw);
+  if (
+    value === CURSEFORGE_RELEASE_TYPE_RELEASE ||
+    value === CURSEFORGE_RELEASE_TYPE_BETA ||
+    value === CURSEFORGE_RELEASE_TYPE_ALPHA
+  ) {
+    return value;
+  }
+  return CURSEFORGE_RELEASE_TYPE_ALPHA;
+}
+
+function releaseTypeLabel(releaseType: number): string {
+  if (releaseType === CURSEFORGE_RELEASE_TYPE_RELEASE) return "release";
+  if (releaseType === CURSEFORGE_RELEASE_TYPE_BETA) return "beta";
+  return "alpha";
+}
+
+function matchesReleaseChannel(
+  releaseType: number,
+  desiredChannel: CurseForgeReleaseChannel
+): boolean {
+  if (desiredChannel === "any") return true;
+  if (desiredChannel === "alpha") {
+    return (
+      releaseType === CURSEFORGE_RELEASE_TYPE_RELEASE ||
+      releaseType === CURSEFORGE_RELEASE_TYPE_BETA ||
+      releaseType === CURSEFORGE_RELEASE_TYPE_ALPHA
+    );
+  }
+  if (desiredChannel === "beta") {
+    return (
+      releaseType === CURSEFORGE_RELEASE_TYPE_RELEASE ||
+      releaseType === CURSEFORGE_RELEASE_TYPE_BETA
+    );
+  }
+  return releaseType === CURSEFORGE_RELEASE_TYPE_RELEASE;
 }
 
 export class CurseForgeProvider extends ModInstallerProvider<CurseForgeStateEntry> {
@@ -385,6 +457,7 @@ export class CurseForgeProvider extends ModInstallerProvider<CurseForgeStateEntr
         fileName: response.data.fileName,
         downloadUrl: response.data.downloadUrl,
         fileLength: response.data.fileLength ?? 0,
+        releaseType: normalizeReleaseType(response.data.releaseType),
         hashes: extractHashes(response.data.hashes ?? []),
         gameVersions: response.data.gameVersions ?? [],
         dependencies: extractDependencies(response.data.dependencies ?? []),
@@ -414,7 +487,22 @@ export class CurseForgeProvider extends ModInstallerProvider<CurseForgeStateEntr
       logWarn(`No mod files matched game version "${desiredVersion}" for mod ${modId}`);
     }
 
-    const candidates = versionFiltered.length ? versionFiltered : files;
+    const versionCandidates = versionFiltered.length ? versionFiltered : files;
+
+    const releaseFiltered = versionCandidates.filter((file) =>
+      matchesReleaseChannel(
+        normalizeReleaseType(file.releaseType),
+        CURSEFORGE_RELEASE_CHANNEL
+      )
+    );
+
+    if (!releaseFiltered.length) {
+      throw new Error(
+        `No mod files matched release channel "${CURSEFORGE_RELEASE_CHANNEL_RAW}" for mod ${modId}`
+      );
+    }
+
+    const candidates = releaseFiltered;
 
     const latest = candidates.reduce((current, next) => {
       if (!current) return next;
@@ -431,6 +519,7 @@ export class CurseForgeProvider extends ModInstallerProvider<CurseForgeStateEntr
       fileName: latest.fileName,
       downloadUrl: latest.downloadUrl,
       fileLength: latest.fileLength ?? 0,
+      releaseType: normalizeReleaseType(latest.releaseType),
       hashes: extractHashes(latest.hashes ?? []),
       gameVersions: latest.gameVersions ?? [],
       dependencies: extractDependencies(latest.dependencies ?? []),
@@ -438,6 +527,12 @@ export class CurseForgeProvider extends ModInstallerProvider<CurseForgeStateEntr
   }
 
   private warnIfIncompatible(fileInfo: CurseForgeFile): void {
+    if (!matchesReleaseChannel(fileInfo.releaseType, CURSEFORGE_RELEASE_CHANNEL)) {
+      logWarn(
+        `Mod ${fileInfo.modName ?? fileInfo.modId} (${fileInfo.modId}) file ${fileInfo.fileId} is ${releaseTypeLabel(fileInfo.releaseType)} but CURSEFORGE_RELEASE_CHANNEL is "${CURSEFORGE_RELEASE_CHANNEL_RAW}"`
+      );
+    }
+
     if (!fileInfo.gameVersions.length) return;
 
     const desiredVersion = CURSEFORGE_GAME_VERSION || HYTALE_PATCHLINE;
