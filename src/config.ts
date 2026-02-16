@@ -5,26 +5,52 @@
  */
 
 import { resolve } from "path";
+import { HytaleGameMode } from "./types/hytale-config.ts";
+import { AuthMode, TransportType, JvmGc } from "./types/runtime-config.ts";
 
 // =============================================================================
 // Helper Functions
 // =============================================================================
 
-function getEnv(key: string, defaultValue: string): string {
+export function getEnv(key: string, defaultValue: string): string {
   return process.env[key] || defaultValue;
 }
 
-function getEnvBool(key: string, defaultValue: boolean): boolean {
+export function getEnvBool(key: string, defaultValue: boolean): boolean {
   const value = process.env[key]?.toLowerCase();
   if (value === undefined) return defaultValue;
   return value === "true" || value === "1" || value === "yes";
 }
 
-function getEnvInt(key: string, defaultValue: number): number {
+export function getEnvInt(key: string, defaultValue: number): number {
   const value = process.env[key];
   if (value === undefined) return defaultValue;
   const parsed = parseInt(value, 10);
   return isNaN(parsed) ? defaultValue : parsed;
+}
+
+export function parseEnvList(value: string): string[] {
+  return value
+    .split(/[,\n]/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+export function getEnvList(key: string, defaultValue: string[] = []): string[] {
+  const value = process.env[key];
+  if (value === undefined) return defaultValue;
+  const parsed = parseEnvList(value);
+  return parsed.length ? parsed : defaultValue;
+}
+
+function getEnvPort(key: string, defaultValue: number): number {
+  const value = process.env[key];
+  if (value === undefined || value === "") return defaultValue;
+  const parsed = parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+    throw new Error(`${key} must be a number between 1 and 65535`);
+  }
+  return parsed;
 }
 
 /**
@@ -32,6 +58,56 @@ function getEnvInt(key: string, defaultValue: number): number {
  */
 export function isEnvSet(key: string): boolean {
   return process.env[key] !== undefined;
+}
+
+function warnInvalidEnv(key: string, value: string, fallback: string): void {
+  // Avoid log-utils here to prevent circular imports.
+  console.warn(`[WARN] Invalid ${key}: ${value}. Falling back to ${fallback}.`);
+}
+
+function warnSkippedEnv(key: string, value: string): void {
+  console.warn(`[WARN] Invalid ${key}: ${value}. Skipping override.`);
+}
+
+function normalizeGameMode(value: string): HytaleGameMode {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "adventure") return "Adventure";
+  if (normalized === "creative") return "Creative";
+  warnInvalidEnv("DEFAULT_GAME_MODE", value, "Adventure");
+  return "Adventure";
+}
+
+function normalizeAuthMode(value: string): AuthMode {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "authenticated" || normalized === "offline" || normalized === "insecure") {
+    return normalized;
+  }
+  warnInvalidEnv("AUTH_MODE", value, "authenticated");
+  return "authenticated";
+}
+
+function normalizeTransportType(value: string): TransportType | "" {
+  if (!value) return "";
+  const normalized = value.trim().toUpperCase();
+  if (normalized === "QUIC" || normalized === "TCP") {
+    return normalized;
+  }
+  warnSkippedEnv("TRANSPORT_TYPE", value);
+  return "";
+}
+
+function normalizeJvmGc(value: string): JvmGc {
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === "g1" ||
+    normalized === "g1-extended" ||
+    normalized === "zgc" ||
+    normalized === "shenandoah"
+  ) {
+    return normalized;
+  }
+  warnInvalidEnv("JVM_GC", value, "g1");
+  return "g1";
 }
 
 // =============================================================================
@@ -49,7 +125,8 @@ export const AUTH_CACHE = resolve(DATA_DIR, ".auth");
 export const LOG_DIR = resolve(DATA_DIR, "logs");
 
 // File paths
-export const SERVER_JAR = resolve(SERVER_DIR, "HytaleServer.jar");
+export const DATA_SERVER_JAR = resolve(SERVER_DIR, "HytaleServer.jar");
+export const SERVER_JAR = "/usr/local/lib/hytale/HytaleServer.jar";
 export const ASSETS_FILE = resolve(DATA_DIR, "Assets.zip");
 export const VERSION_FILE = resolve(DATA_DIR, ".version");
 export const AOT_CACHE = resolve(SERVER_DIR, "HytaleServer.aot");
@@ -80,15 +157,18 @@ export const SKIP_CLI_UPDATE_CHECK = getEnvBool("SKIP_CLI_UPDATE_CHECK", false);
 export const JAVA_XMS = getEnv("JAVA_XMS", "1G");
 export const JAVA_XMX = getEnv("JAVA_XMX", "4G");
 export const JAVA_OPTS = getEnv("JAVA_OPTS", "");
+export const JAVA_DEBUG = getEnvBool("JAVA_DEBUG", false);
 export const ENABLE_AOT_CACHE = getEnvBool("ENABLE_AOT_CACHE", true);
+export const ENABLE_JVM_TUNING = getEnvBool("ENABLE_JVM_TUNING", true);
+export const JVM_GC: JvmGc = normalizeJvmGc(getEnv("JVM_GC", "g1"));
 
 // =============================================================================
 // Server Configuration
 // =============================================================================
 
-export const SERVER_PORT = getEnv("SERVER_PORT", "5520");
+export const SERVER_PORT = getEnvPort("SERVER_PORT", 5520);
 export const BIND_ADDRESS = getEnv("BIND_ADDRESS", "0.0.0.0");
-export const AUTH_MODE = getEnv("AUTH_MODE", "authenticated");
+export const AUTH_MODE: AuthMode = normalizeAuthMode(getEnv("AUTH_MODE", "authenticated"));
 
 // Server feature flags
 export const DISABLE_SENTRY = getEnvBool("DISABLE_SENTRY", false);
@@ -96,25 +176,39 @@ export const ACCEPT_EARLY_PLUGINS = getEnvBool("ACCEPT_EARLY_PLUGINS", false);
 export const ALLOW_OP = getEnvBool("ALLOW_OP", false);
 
 // Advanced server options
-export const TRANSPORT_TYPE = getEnv("TRANSPORT_TYPE", "");
+export const TRANSPORT_TYPE: TransportType | "" = normalizeTransportType(
+  getEnv("TRANSPORT_TYPE", "")
+);
 export const BOOT_COMMANDS = getEnv("BOOT_COMMANDS", "");
 export const ADDITIONAL_MODS_DIR = getEnv("ADDITIONAL_MODS_DIR", "");
 export const ADDITIONAL_PLUGINS_DIR = getEnv("ADDITIONAL_PLUGINS_DIR", "");
 export const SERVER_LOG_LEVEL = getEnv("SERVER_LOG_LEVEL", "");
 export const HYTALE_OWNER_NAME = getEnv("HYTALE_OWNER_NAME", "");
+export const BARE_MODE = getEnvBool("BARE_MODE", false);
+export const CLIENT_PID = getEnv("CLIENT_PID", "");
+export const DISABLE_ASSET_COMPARE = getEnvBool("DISABLE_ASSET_COMPARE", false);
+export const DISABLE_CPB_BUILD = getEnvBool("DISABLE_CPB_BUILD", false);
+export const DISABLE_FILE_WATCHER = getEnvBool("DISABLE_FILE_WATCHER", false);
+export const EVENT_DEBUG = getEnvBool("EVENT_DEBUG", false);
+export const FORCE_NETWORK_FLUSH = getEnv("FORCE_NETWORK_FLUSH", "");
+export const GENERATE_SCHEMA = getEnvBool("GENERATE_SCHEMA", false);
+export const MIGRATE_WORLDS = getEnv("MIGRATE_WORLDS", "");
+export const MIGRATIONS = getEnv("MIGRATIONS", "");
+export const PREFAB_CACHE = getEnv("PREFAB_CACHE", "");
+export const SHUTDOWN_AFTER_VALIDATE = getEnvBool("SHUTDOWN_AFTER_VALIDATE", false);
+export const SINGLEPLAYER = getEnvBool("SINGLEPLAYER", false);
+export const UNIVERSE_PATH = getEnv("UNIVERSE_PATH", "");
+export const VALIDATE_ASSETS = getEnvBool("VALIDATE_ASSETS", false);
+export const VALIDATE_PREFABS = getEnv("VALIDATE_PREFABS", "");
+export const VALIDATE_WORLD_GEN = getEnvBool("VALIDATE_WORLD_GEN", false);
+export const SHOW_VERSION = getEnvBool("SHOW_VERSION", false);
+export const WORLD_GEN = getEnv("WORLD_GEN", "");
 
 // =============================================================================
-// Mod Installation (CurseForge)
+// Mod Installation
 // =============================================================================
 
 export const MOD_INSTALL_MODE = getEnv("MOD_INSTALL_MODE", "off");
-export const CURSEFORGE_MOD_LIST = getEnv("CURSEFORGE_MOD_LIST", "");
-export const CURSEFORGE_API_KEY = getEnv("CURSEFORGE_API_KEY", "");
-export const CURSEFORGE_GAME_VERSION = getEnv("CURSEFORGE_GAME_VERSION", "Early Access");
-export const CURSEFORGE_MODS_DIR = getEnv(
-  "CURSEFORGE_MODS_DIR",
-  resolve(DATA_DIR, "curseforge-mods")
-);
 
 // =============================================================================
 // Config File Generation (config.json / whitelist.json)
@@ -131,13 +225,15 @@ export const MAX_PLAYERS = getEnvInt("MAX_PLAYERS", 100);
 export const MAX_VIEW_RADIUS = getEnvInt("MAX_VIEW_RADIUS", 32);
 export const LOCAL_COMPRESSION_ENABLED = getEnvBool("LOCAL_COMPRESSION_ENABLED", false);
 export const DEFAULT_WORLD = getEnv("DEFAULT_WORLD", "default");
-export const DEFAULT_GAME_MODE = getEnv("DEFAULT_GAME_MODE", "Adventure");
+export const DEFAULT_GAME_MODE: HytaleGameMode = normalizeGameMode(
+  getEnv("DEFAULT_GAME_MODE", "Adventure")
+);
 export const DISPLAY_TMP_TAGS_IN_STRINGS = getEnvBool("DISPLAY_TMP_TAGS_IN_STRINGS", false);
 export const PLAYER_STORAGE_TYPE = getEnv("PLAYER_STORAGE_TYPE", "Hytale");
 
 // Whitelist configuration
 export const WHITELIST_ENABLED = getEnvBool("WHITELIST_ENABLED", false);
-export const WHITELIST_LIST = getEnv("WHITELIST_LIST", ""); // Comma-separated player UUIDs
+export const WHITELIST_LIST = getEnvList("WHITELIST_LIST", []); // Comma/newline-separated player UUIDs
 export const WHITELIST_JSON = getEnv("WHITELIST_JSON", ""); // Full JSON override
 
 // =============================================================================
@@ -160,7 +256,8 @@ export const CONTAINER_LOG_LEVEL = getEnv("CONTAINER_LOG_LEVEL", "INFO").toUpper
 // =============================================================================
 
 export const DRY_RUN = getEnvBool("DRY_RUN", false);
-export const TZ = getEnv("TZ", "UTC");
+export const DIAGNOSTICS = getEnvBool("DIAGNOSTICS", false);
+export const NO_COLOR = getEnvBool("NO_COLOR", false);
 
 // =============================================================================
 // Token Configuration

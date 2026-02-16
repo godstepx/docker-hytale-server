@@ -1,5 +1,5 @@
 /**
- * Download Adapter - Hytale Server Files Management
+ * Hytale Server File Management
  * Handles obtaining server files via multiple methods:
  *   1. MANUAL: User provides files via volume mount (no auth needed)
  *   2. CLI: Official Hytale Downloader CLI with OAuth2 (recommended)
@@ -13,25 +13,26 @@ import {
   readFileSync,
   copyFileSync,
   rmSync,
-  renameSync,
   readdirSync,
 } from "fs";
-import { resolve as resolvePath, basename } from "path";
+import { resolve, basename } from "path";
 import { cp } from "fs/promises";
-import { logInfo, logWarn, logError, logDebug, logSeparator, die } from "./log-utils.ts";
+import { logInfo, logWarn, logError, logDebug, logSeparator, fatal } from "./log-utils.ts";
+import { calculateBackoff } from "./utils.ts";
+import { CliResult, ModeHandler } from "./types/download.ts";
 import {
   DATA_DIR,
   BUNDLED_CLI_DIR,
   USER_CLI_DIR,
   AUTH_CACHE,
   SERVER_DIR,
+  DATA_SERVER_JAR,
   ASSETS_FILE,
   VERSION_FILE,
   DOWNLOAD_MODE,
   HYTALE_CLI_URL,
   LAUNCHER_PATH,
   DOWNLOAD_MAX_RETRIES,
-  DOWNLOAD_INITIAL_BACKOFF,
   HYTALE_PATCHLINE,
   FORCE_DOWNLOAD,
   CHECK_UPDATES,
@@ -39,19 +40,29 @@ import {
   DRY_RUN,
 } from "./config.ts";
 
-const CLI_CREDENTIALS_PATH = resolvePath(AUTH_CACHE, "credentials.json");
+const CLI_CREDENTIALS_PATH = resolve(AUTH_CACHE, "credentials.json");
 
-/**
- * Calculate exponential backoff with jitter
- */
-function calculateBackoff(attempt: number): number {
-  const baseBackoff = DOWNLOAD_INITIAL_BACKOFF * Math.pow(2, attempt - 1);
-  const jitter = Math.floor(Math.random() * 5);
-  return baseBackoff + jitter;
+function logServerFilesReady(): void {
+  logInfo("Server files ready!");
 }
 
 // Cached CLI binary path (resolved once, reused)
 let cachedCliBinary: string | null = null;
+let cachedCliVersion: string | null = null;
+let serverFilesCache: { serverJar: boolean; assets: boolean } | null = null;
+
+function getServerFilesPresence(): { serverJar: boolean; assets: boolean } {
+  if (serverFilesCache) return serverFilesCache;
+  serverFilesCache = {
+    serverJar: existsSync(DATA_SERVER_JAR),
+    assets: existsSync(ASSETS_FILE),
+  };
+  return serverFilesCache;
+}
+
+function clearServerFilesCache(): void {
+  serverFilesCache = null;
+}
 
 /**
  * Get or resolve CLI binary path (cached after first call)
@@ -60,7 +71,7 @@ function getOrResolveCli(): string {
   if (cachedCliBinary) return cachedCliBinary;
   cachedCliBinary = getCliBinaryPath();
   if (!cachedCliBinary) {
-    die("CLI binary not found. Bundled CLI should always be present.");
+    fatal("CLI binary not found. Bundled CLI should always be present.");
   }
   return cachedCliBinary;
 }
@@ -70,6 +81,7 @@ function getOrResolveCli(): string {
  */
 function clearCliCache(): void {
   cachedCliBinary = null;
+  cachedCliVersion = null;
 }
 
 /**
@@ -88,32 +100,63 @@ function buildCliArgs(args: string[]): string[] {
 /**
  * Run CLI command synchronously (for quick commands like -print-version)
  */
-function runCliSync(args: string[]): { exitCode: number; stdout: string } {
+function runCliSync(args: string[]): { exitCode: number; stdout: string; stderr: string; output: string } {
   // Ensure auth cache directory exists before CLI runs
   mkdirSync(AUTH_CACHE, { recursive: true });
 
   const cliBin = getOrResolveCli();
   const proc = Bun.spawnSync([cliBin, ...buildCliArgs(args)]);
+  const stdout = new TextDecoder().decode(proc.stdout).trim();
+  const stderr = new TextDecoder().decode(proc.stderr).trim();
+  const output = [stdout, stderr].filter(Boolean).join("\n");
   return {
     exitCode: proc.exitCode ?? 1,
-    stdout: new TextDecoder().decode(proc.stdout).trim(),
+    stdout,
+    stderr,
+    output,
   };
 }
 
-type CliResult = {
-  exitCode: number;
-  output: string;
-};
+function getCliVersionCached(): string {
+  if (cachedCliVersion) return cachedCliVersion;
+  let version = "unknown";
+  try {
+    const result = runCliSync(["-print-version"]);
+    if (result.exitCode === 0 && result.stdout) {
+      version = result.stdout;
+    }
+  } catch {
+    // Ignore version check errors
+  }
+  cachedCliVersion = version;
+  return version;
+}
 
 async function captureCliOutput(
   stream: ReadableStream<Uint8Array> | null,
-  writeTo: NodeJS.WriteStream
+  logLine: (message: string) => void
 ): Promise<string> {
   if (!stream) return "";
   const chunks: Uint8Array[] = [];
+  const decoder = new TextDecoder();
+  let buffer = "";
   for await (const chunk of stream) {
-    writeTo.write(chunk);
+    const text = decoder.decode(chunk);
+    buffer += text.replace(/\r/g, "\n");
+    let index = buffer.indexOf("\n");
+    while (index >= 0) {
+      const line = buffer.slice(0, index).trimEnd();
+      if (line.length > 0) {
+        logLine(`[CLI] ${line}`);
+      }
+      buffer = buffer.slice(index + 1);
+      index = buffer.indexOf("\n");
+    }
     chunks.push(chunk);
+  }
+  const remaining = buffer.trimEnd();
+  if (remaining.length > 0) {
+    logLine(`[CLI] ${remaining}`);
   }
   if (!chunks.length) return "";
   const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
@@ -141,8 +184,8 @@ async function runCliAsync(args: string[]): Promise<CliResult> {
   });
 
   const [stdout, stderr, exitCode] = await Promise.all([
-    captureCliOutput(proc.stdout, process.stdout),
-    captureCliOutput(proc.stderr, process.stderr),
+    captureCliOutput(proc.stdout, logInfo),
+    captureCliOutput(proc.stderr, logWarn),
     proc.exited,
   ]);
 
@@ -165,12 +208,21 @@ function handleCliAuthFailure(output: string): void {
   if (existsSync(CLI_CREDENTIALS_PATH)) {
     try {
       rmSync(CLI_CREDENTIALS_PATH, { force: true });
-      logWarn("CLI auth token expired or revoked. Cleared credentials.json; re-auth required.");
+      logWarn("CLI auth expired or missing. credentials.json was cleared. Restart the container to re-auth.");
     } catch (error) {
       logWarn(`Failed to clear CLI credentials.json: ${error}`);
     }
   } else {
     logWarn("CLI auth token expired or revoked. Re-auth required.");
+  }
+}
+
+
+async function checkCliAuth(): Promise<void> {
+  const result = await runCliAsync(["-print-version"]);
+  if (result.exitCode !== 0) {
+    handleCliAuthFailure(result.output);
+    fatal("Hytale Downloader failed. Please check the output above.");
   }
 }
 
@@ -196,7 +248,7 @@ function detectCliBinaryIn(dir: string): string | null {
   ];
 
   for (const name of binaryNames) {
-    const candidate = resolvePath(dir, name);
+    const candidate = resolve(dir, name);
     if (existsSync(candidate)) {
       return candidate;
     }
@@ -212,10 +264,19 @@ function detectCliBinaryIn(dir: string): string | null {
 function getCliBinaryPath(): string | null {
   // Check user CLI first (may have been downloaded previously or via FORCE_DOWNLOAD)
   const userCli = detectCliBinaryIn(USER_CLI_DIR);
-  if (userCli) return userCli;
+  if (userCli) {
+    logInfo(`Using user CLI: ${basename(userCli)}`);
+    return userCli;
+  }
 
   // Fall back to bundled CLI (always present in image)
   return detectCliBinaryIn(BUNDLED_CLI_DIR);
+}
+
+function logCliInfo(binary: string): void {
+  const isUserCli = binary.startsWith(USER_CLI_DIR);
+  const source = isUserCli ? "user" : "bundled";
+  logInfo(`Using ${source} CLI: ${basename(binary)}`);
 }
 
 /**
@@ -243,7 +304,7 @@ async function downloadCli(): Promise<void> {
 
   mkdirSync(USER_CLI_DIR, { recursive: true });
 
-  const tempZipPath = resolvePath(USER_CLI_DIR, "cli-download.zip");
+  const tempZipPath = resolve(USER_CLI_DIR, "cli-download.zip");
 
   let attempt = 1;
   while (attempt <= DOWNLOAD_MAX_RETRIES) {
@@ -272,7 +333,7 @@ async function downloadCli(): Promise<void> {
         logInfo(`CLI downloaded successfully: ${basename(binary)}`);
         return;
       } else {
-        die(`CLI extracted but no executable found in ${USER_CLI_DIR}`);
+        fatal(`CLI extracted but no executable found in ${USER_CLI_DIR}`);
       }
     } catch (error) {
       rmSync(tempZipPath, { force: true }); // Cleanup on error
@@ -283,7 +344,7 @@ async function downloadCli(): Promise<void> {
     }
   }
 
-  die(`Failed to download Hytale CLI after ${DOWNLOAD_MAX_RETRIES} attempts`);
+  fatal(`Failed to download Hytale CLI after ${DOWNLOAD_MAX_RETRIES} attempts`);
 }
 
 /**
@@ -300,16 +361,15 @@ async function ensureCli(): Promise<void> {
 
   // Log which CLI we're using
   const binary = getOrResolveCli();
-  const isUserCli = binary.startsWith(USER_CLI_DIR);
-  logInfo(`Using ${isUserCli ? "user" : "bundled"} CLI: ${basename(binary)}`);
+  logCliInfo(binary);
 }
 
 /**
  * Check if existing server files are present
  */
 function hasExistingFiles(): boolean {
-  const serverJar = resolvePath(SERVER_DIR, "HytaleServer.jar");
-  return existsSync(serverJar) && existsSync(ASSETS_FILE);
+  const presence = getServerFilesPresence();
+  return presence.serverJar && presence.assets;
 }
 
 async function checkForUpdates(): Promise<boolean> {
@@ -345,14 +405,17 @@ async function checkForUpdates(): Promise<boolean> {
  */
 async function downloadServerFiles(): Promise<void> {
   logInfo("Starting server file download...");
+  clearServerFilesCache();
 
-  const downloadPath = resolvePath(DATA_DIR, "game.zip");
+  const tempDir = "/tmp";
+  const downloadPath = resolve(tempDir, "hytale-game.zip");
+  mkdirSync(tempDir, { recursive: true });
 
-  // Clean up any leftover game.zip from previous failed runs
+  // Clean up any leftover archive from previous failed runs
   try {
     rmSync(downloadPath, { force: true });
   } catch (error) {
-    logWarn(`Could not clean up old game.zip: ${error}`);
+    logWarn(`Could not clean up old download archive: ${error}`);
   }
 
   const downloadArgs = ["-download-path", downloadPath];
@@ -365,84 +428,78 @@ async function downloadServerFiles(): Promise<void> {
   logSeparator();
   logInfo("Running Hytale Downloader...");
   logInfo("If this is your first time, you will need to authorize:");
+
   logSeparator();
-  console.log(""); // Blank line before CLI output
-
   const result = await runCliAsync(downloadArgs);
-
-  console.log(""); // Blank line after CLI output
   logSeparator();
 
   if (result.exitCode !== 0) {
     handleCliAuthFailure(result.output);
-    die("Hytale Downloader failed. Please check the output above.");
+    fatal("Hytale Downloader failed. Please check the output above.");
   }
 
   logInfo("Download complete, extracting...");
 
   // Extract the downloaded archive
   if (existsSync(downloadPath)) {
-    // Extract directly to DATA_DIR (creates Server/ and Assets.zip there)
-    await unzipFile(downloadPath, DATA_DIR);
+    const extractDir = resolve("/tmp", "hytale-extract");
+    rmSync(extractDir, { recursive: true, force: true });
+    mkdirSync(extractDir, { recursive: true });
+
+    // Extract to temp dir (creates Server/ and Assets.zip there)
+    await unzipFile(downloadPath, extractDir);
 
     // Debug: List what was extracted
     try {
-      const items = readdirSync(DATA_DIR);
-      logDebug(`Extracted items in ${DATA_DIR}: ${items.join(", ")}`);
+      const items = readdirSync(extractDir);
+      logDebug(`Extracted items in ${extractDir}: ${items.join(", ")}`);
     } catch (e) {
-      logDebug(`Could not list ${DATA_DIR}: ${e}`);
+      logDebug(`Could not list ${extractDir}: ${e}`);
     }
 
-    const extractedServerDir = resolvePath(DATA_DIR, "Server");
-    const serverJar = resolvePath(SERVER_DIR, "HytaleServer.jar");
+    const extractedServerDir = resolve(extractDir, "Server");
+    const extractedAssets = resolve(extractDir, "Assets.zip");
 
-    if (existsSync(serverJar)) {
-      // Files already in correct location (case-insensitive filesystem extracted to server/)
-      logDebug("Server files already in correct location");
-    } else if (existsSync(extractedServerDir)) {
-      // Case-sensitive filesystem: need to rename Server/ to server/
-      logDebug(`Renaming ${extractedServerDir} to ${SERVER_DIR}`);
-      renameSync(extractedServerDir, SERVER_DIR);
-    } else {
-      die("Extraction failed: Server directory not found after unzip");
+    if (!existsSync(extractedServerDir)) {
+      fatal("Extraction failed: Server directory not found after unzip");
+    }
+    if (!existsSync(extractedAssets)) {
+      fatal("Extraction failed: Assets.zip not found after unzip");
     }
 
-    // Assets.zip is already in the right place (DATA_DIR/Assets.zip)
+    // Replace server directory and assets from temp (handle cross-device moves)
+    rmSync(SERVER_DIR, { recursive: true, force: true });
+    await cp(extractedServerDir, SERVER_DIR, { recursive: true, force: true });
+    rmSync(extractedServerDir, { recursive: true, force: true });
+    rmSync(ASSETS_FILE, { force: true });
+    await cp(extractedAssets, ASSETS_FILE, { force: true });
+    rmSync(extractedAssets, { force: true });
+    rmSync(extractDir, { recursive: true, force: true });
 
     // Cleanup downloaded archive
     rmSync(downloadPath, { force: true });
 
-    saveVersionInfo("cli");
-    logInfo("Server files ready!");
+    clearServerFilesCache();
+    saveVersionInfo();
   } else {
-    die("Expected game.zip not found after download");
+    fatal("Expected download archive not found after download");
   }
 }
 
 /**
  * Save version information
  */
-function saveVersionInfo(source: string): void {
-  let version = "unknown";
-
-  try {
-    const result = runCliSync(["-print-version"]);
-    if (result.exitCode === 0) {
-      version = result.stdout;
-    }
-  } catch (error) {
-    // Ignore
-  }
+function saveVersionInfo(): void {
+  const version = getCliVersionCached();
 
   const versionInfo = {
     version,
-    source,
     patchline: HYTALE_PATCHLINE,
     downloaded_at: new Date().toISOString(),
   };
 
   writeFileSync(VERSION_FILE, JSON.stringify(versionInfo, null, 2), "utf-8");
-  logInfo(`Version info saved: ${version} (${source})`);
+  logInfo(`Version info saved: ${version}`);
 }
 
 /**
@@ -468,30 +525,25 @@ function showManualInstructions(): void {
   logSeparator();
   logError("Server files not found!");
   logSeparator();
-  logInfo("");
-  logInfo("Please provide server files using one of these methods:");
-  logInfo("");
-  logInfo("Option 1: Copy from your Hytale Launcher installation");
-  logInfo("  Source locations:");
-  logInfo("    Windows: %appdata%\\Hytale\\install\\release\\package\\game\\latest");
-  logInfo("    Linux:   $XDG_DATA_HOME/Hytale/install/release/package/game/latest");
-  logInfo("    MacOS:   ~/Application Support/Hytale/install/release/package/game/latest");
-  logInfo("");
-  logInfo("  Copy 'Server/' folder and 'Assets.zip' to your data volume:");
-  logInfo("    docker cp ./Server hytale-server:/data/server");
-  logInfo("    docker cp ./Assets.zip hytale-server:/data/Assets.zip");
-  logInfo("");
-  logInfo("Option 2: Use Hytale Downloader CLI");
-  logInfo("  Set HYTALE_CLI_URL environment variable to the CLI download URL");
   logInfo(
-    "  (Get URL from: https://support.hytale.com/hc/en-us/articles/45326769420827-Hytale-Server-Manual)"
+    `\nManual mode expects these files to already exist:\n` +
+      `  /data/server (Server directory)\n` +
+      `  /data/Assets.zip\n\n` +
+      `Please provide server files using one of these methods:\n\n` +
+      `Option 1 (Recommended): Use Hytale Downloader CLI\n` +
+      `  Set DOWNLOAD_MODE=cli (uses bundled CLI by default)\n` +
+      `  CLI download guide: https://support.hytale.com/hc/en-us/articles/45326769420827-Hytale-Server-Manual\n\n` +
+      `Option 2: Copy from your Hytale Launcher install\n` +
+      `  Source locations:\n` +
+      `    Windows: %appdata%\\Hytale\\install\\release\\package\\game\\latest\n` +
+      `    Linux:   $XDG_DATA_HOME/Hytale/install/release/package/game/latest\n` +
+      `    MacOS:   ~/Application Support/Hytale/install/release/package/game/latest\n\n` +
+      `  Copy 'Server/' and 'Assets.zip' into the volume:\n` +
+      `    docker cp ./Server hytale-server:/data/server\n` +
+      `    docker cp ./Assets.zip hytale-server:/data/Assets.zip\n\n` +
+      `Option 3: Use auto mode instead of manual\n` +
+      `  Set DOWNLOAD_MODE=auto (tries launcher, then CLI, then manual)\n\n`
   );
-  logInfo("");
-  logInfo("Option 3: Mount launcher directory directly");
-  logInfo("  docker run -v /path/to/Hytale/install/release/package/game/latest:/launcher:ro \\");
-  logInfo("             -e LAUNCHER_PATH=/launcher \\");
-  logInfo("             -v hytale-data:/data ...");
-  logInfo("");
   logSeparator();
 }
 
@@ -505,8 +557,8 @@ async function copyFromLauncher(): Promise<boolean> {
 
   logInfo(`Copying server files from launcher: ${LAUNCHER_PATH}`);
 
-  const launcherServer = resolvePath(LAUNCHER_PATH, "Server");
-  const launcherAssets = resolvePath(LAUNCHER_PATH, "Assets.zip");
+  const launcherServer = resolve(LAUNCHER_PATH, "Server");
+  const launcherAssets = resolve(LAUNCHER_PATH, "Assets.zip");
 
   if (!existsSync(launcherServer)) {
     logError(`Server directory not found at: ${launcherServer}`);
@@ -530,18 +582,96 @@ async function copyFromLauncher(): Promise<boolean> {
   logInfo("Copying Assets.zip...");
   copyFileSync(launcherAssets, ASSETS_FILE);
 
-  saveVersionInfo("launcher");
+  clearServerFilesCache();
   logInfo("Server files copied successfully!");
   return true;
 }
+
+const manualHandler: ModeHandler = {
+  async ensure(): Promise<void> {
+    if (hasExistingFiles()) {
+      logServerFilesReady();
+      return;
+    }
+    showManualInstructions();
+    fatal("Manual mode requires existing /data/server and /data/Assets.zip. See instructions above.");
+  },
+};
+
+const launcherHandler: ModeHandler = {
+  async ensure(): Promise<void> {
+    if (await copyFromLauncher()) {
+      logServerFilesReady();
+      return;
+    }
+    fatal("Failed to copy from launcher. Check LAUNCHER_PATH.");
+  },
+};
+
+const cliHandler: ModeHandler = {
+  async ensure(): Promise<void> {
+    await ensureCli();
+
+    await checkCliAuth();
+    
+    const updateOk = await checkCliUpdate();
+    if (!updateOk) {
+      fatal("Hytale Downloader failed. Please check the output above.");
+    }
+
+    // Check if files already exist
+    if (hasExistingFiles()) {
+      if (FORCE_DOWNLOAD) {
+        logInfo("FORCE_DOWNLOAD=true, re-downloading...");
+      } else {
+        const shouldDownload = await checkForUpdates();
+        if (!shouldDownload) {
+          logInfo(`Using existing server files (version: ${getInstalledVersion()})`);
+          return;
+        }
+      }
+    }
+
+    await downloadServerFiles();
+    logServerFilesReady();
+  },
+};
+
+const autoHandler: ModeHandler = {
+  async ensure(): Promise<void> {
+    logInfo("Auto-detecting best method...");
+
+    if (LAUNCHER_PATH) {
+      logInfo("Using mode: launcher");
+      await modeHandlers.launcher?.ensure();
+      return;
+    }
+
+    if (HYTALE_CLI_URL) {
+      logInfo("Using mode: cli");
+      await modeHandlers.cli?.ensure();
+      return;
+    }
+
+    await modeHandlers.manual?.ensure();
+  },
+};
+
+const modeHandlers: Record<string, ModeHandler> = {
+  manual: manualHandler,
+  launcher: launcherHandler,
+  cli: cliHandler,
+  auto: autoHandler,
+};
 
 /**
  * Main entry point for download module
  * Can be called directly or imported by other modules
  */
-export async function ensureServerFiles(): Promise<void> {
+export async function prepareServerFiles(): Promise<void> {
+  logSeparator();
   logInfo("Hytale Server File Manager");
-  logInfo("==========================");
+  logSeparator();
   logInfo(`Mode: ${DOWNLOAD_MODE}`);
 
   // DRY_RUN mode
@@ -553,6 +683,7 @@ export async function ensureServerFiles(): Promise<void> {
     logInfo(`[DRY_RUN] Patchline: ${HYTALE_PATCHLINE}`);
     logInfo(`[DRY_RUN] Server dir: ${SERVER_DIR}`);
     logInfo(`[DRY_RUN] Assets: ${ASSETS_FILE}`);
+    logInfo(`[DRY_RUN] Checking for updates: ${CHECK_UPDATES}`);
     return;
   }
 
@@ -560,71 +691,9 @@ export async function ensureServerFiles(): Promise<void> {
   mkdirSync(DATA_DIR, { recursive: true });
   mkdirSync(SERVER_DIR, { recursive: true });
 
-  // Determine how to obtain files based on mode
-  switch (DOWNLOAD_MODE) {
-    case "manual":
-      showManualInstructions();
-      die("Server files must be provided manually. See instructions above.");
-
-    case "launcher":
-      if (await copyFromLauncher()) {
-        logInfo("Server files ready!");
-        return;
-      } else {
-        die("Failed to copy from launcher. Check LAUNCHER_PATH.");
-      }
-
-    case "cli":
-      await cliMode();
-      break;
-
-    case "auto":
-    default:
-      // Auto mode: Try methods in order of preference
-      logInfo("Auto-detecting best method...");
-
-      // 1. Try launcher path if set
-      if (LAUNCHER_PATH) {
-        logInfo("Trying launcher copy...");
-        if (await copyFromLauncher()) {
-          logInfo("Server files ready!");
-          return;
-        }
-        logWarn("Launcher copy failed, trying next method...");
-      }
-
-      // 2. Try CLI if URL is set
-      if (HYTALE_CLI_URL) {
-        await cliMode();
-        return;
-      }
-
-      // 3. No automatic method available - show instructions
-      showManualInstructions();
-      die("No automatic download method available. See instructions above.");
+  const handler = modeHandlers[DOWNLOAD_MODE] ?? autoHandler;
+  if (!modeHandlers[DOWNLOAD_MODE] && DOWNLOAD_MODE !== "auto") {
+    logWarn(`Unknown DOWNLOAD_MODE=${DOWNLOAD_MODE}, falling back to auto mode.`);
   }
-
-  async function cliMode() {
-    await ensureCli();
-
-    const updateOk = await checkCliUpdate();
-    if (!updateOk) {
-      die("CLI not logged in or auth expired. Please re-auth and try again.");
-    }
-
-    // Check if files already exist
-    if (hasExistingFiles()) {
-      logInfo(`Using existing server files (version: ${getInstalledVersion()})`);
-      if (FORCE_DOWNLOAD) {
-        logInfo("FORCE_DOWNLOAD=true, re-downloading...");
-      } else {
-        const shouldDownload = await checkForUpdates();
-        if (!shouldDownload) return;
-        logInfo("Update detected, downloading latest version...");
-      }
-    }
-
-    await downloadServerFiles();
-    logInfo("Server files ready!");
-  }
+  await handler.ensure();
 }

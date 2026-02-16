@@ -1,0 +1,225 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`config writer (world) patch 1`] = `
+"{
+  "ChunkStorage": {
+    "Type": "CustomChunk"
+  },
+  "ClientEffects": {
+    "BloomIntensity": 0.2,
+    "BloomPower": 3,
+    "SunAngleDegrees": 10,
+    "SunHeightPercent": 55,
+    "SunIntensity": 0.5,
+    "SunshaftIntensity": 0.4,
+    "SunshaftScaleFactor": 2
+  },
+  "Death": {
+    "ItemsAmountLossPercentage": 25,
+    "ItemsDurabilityLossPercentage": 5,
+    "ItemsLossMode": "All",
+    "RespawnController": {
+      "Type": "SpawnPoint"
+    }
+  },
+  "DeleteOnRemove": true,
+  "DeleteOnUniverseStart": true,
+  "GameplayConfig": "Hardcore",
+  "IsAllNPCFrozen": true,
+  "IsBlockTicking": false,
+  "IsCompassUpdating": false,
+  "IsFallDamageEnabled": false,
+  "IsGameTimePaused": true,
+  "IsObjectiveMarkersEnabled": false,
+  "IsPvpEnabled": true,
+  "IsSavingChunks": false,
+  "IsSavingPlayers": false,
+  "IsSpawningNPC": false,
+  "IsSpawnMarkersEnabled": false,
+  "IsTicking": false,
+  "IsUnloadingChunks": false,
+  "ResourceStorage": {
+    "Type": "CustomResource"
+  },
+  "SaveNewChunks": false,
+  "Seed": 12345,
+  "Version": 5,
+  "WorldGen": {
+    "Name": "TestGen",
+    "Type": "flat"
+  },
+  "WorldMap": {
+    "Type": "CustomMap"
+  }
+}"
+`;
+
+exports[`config writer (world) override 1`] = `
+"{
+  "ChunkStorage": {
+    "Type": "Override"
+  },
+  "DeleteOnRemove": true,
+  "DeleteOnUniverseStart": true,
+  "GameplayConfig": "Override",
+  "IsAllNPCFrozen": false,
+  "IsBlockTicking": false,
+  "IsCompassUpdating": false,
+  "IsFallDamageEnabled": false,
+  "IsGameTimePaused": true,
+  "IsObjectiveMarkersEnabled": false,
+  "IsPvpEnabled": false,
+  "IsSavingChunks": false,
+  "IsSavingPlayers": false,
+  "IsSpawningNPC": false,
+  "IsSpawnMarkersEnabled": false,
+  "IsTicking": false,
+  "IsUnloadingChunks": false,
+  "ResourceStorage": {
+    "Type": "Override"
+  },
+  "SaveNewChunks": false,
+  "Version": 10,
+  "WorldGen": {
+    "Name": "Override",
+    "Type": "Custom"
+  },
+  "WorldMap": {
+    "Type": "Override"
+  }
+}"
+`;
+
+exports[`config writer (world) override ignores settings 1`] = `
+"{
+  "ChunkStorage": {
+    "Type": "Hytale"
+  },
+  "Death": {
+    "ItemsAmountLossPercentage": 50,
+    "ItemsDurabilityLossPercentage": 10,
+    "ItemsLossMode": "Configured",
+    "RespawnController": {
+      "Type": "HomeOrSpawnPoint"
+    }
+  },
+  "DeleteOnRemove": false,
+  "DeleteOnUniverseStart": false,
+  "GameplayConfig": "Override",
+  "IsAllNPCFrozen": false,
+  "IsBlockTicking": true,
+  "IsCompassUpdating": true,
+  "IsFallDamageEnabled": true,
+  "IsGameTimePaused": false,
+  "IsObjectiveMarkersEnabled": true,
+  "IsPvpEnabled": false,
+  "IsSavingChunks": true,
+  "IsSavingPlayers": true,
+  "IsSpawningNPC": true,
+  "IsSpawnMarkersEnabled": true,
+  "IsTicking": true,
+  "IsUnloadingChunks": true,
+  "ResourceStorage": {
+    "Type": "Hytale"
+  },
+  "SaveNewChunks": true,
+  "Version": 4,
+  "WorldGen": {
+    "Name": "Default",
+    "Type": "Hytale"
+  },
+  "WorldMap": {
+    "Type": "WorldGen"
+  }
+}"
+`;
+
+exports[`config writer (world) multiple worlds 1`] = `
+"{
+  "alpha": {
+    "ChunkStorage": {
+      "Type": "Hytale"
+    },
+    "Death": {
+      "ItemsAmountLossPercentage": 50,
+      "ItemsDurabilityLossPercentage": 10,
+      "ItemsLossMode": "Configured",
+      "RespawnController": {
+        "Type": "HomeOrSpawnPoint"
+      }
+    },
+    "DeleteOnRemove": false,
+    "DeleteOnUniverseStart": false,
+    "GameplayConfig": "Default",
+    "IsAllNPCFrozen": false,
+    "IsBlockTicking": true,
+    "IsCompassUpdating": true,
+    "IsFallDamageEnabled": true,
+    "IsGameTimePaused": false,
+    "IsObjectiveMarkersEnabled": true,
+    "IsPvpEnabled": true,
+    "IsSavingChunks": true,
+    "IsSavingPlayers": true,
+    "IsSpawningNPC": true,
+    "IsSpawnMarkersEnabled": true,
+    "IsTicking": true,
+    "IsUnloadingChunks": true,
+    "ResourceStorage": {
+      "Type": "Hytale"
+    },
+    "SaveNewChunks": true,
+    "Version": 4,
+    "WorldGen": {
+      "Name": "Default",
+      "Type": "Hytale"
+    },
+    "WorldMap": {
+      "Type": "WorldGen"
+    }
+  },
+  "beta": {
+    "ChunkStorage": {
+      "Type": "Hytale"
+    },
+    "ClientEffects": {
+      "BloomPower": 7
+    },
+    "Death": {
+      "ItemsAmountLossPercentage": 50,
+      "ItemsDurabilityLossPercentage": 10,
+      "ItemsLossMode": "Configured",
+      "RespawnController": {
+        "Type": "HomeOrSpawnPoint"
+      }
+    },
+    "DeleteOnRemove": false,
+    "DeleteOnUniverseStart": false,
+    "GameplayConfig": "Default",
+    "IsAllNPCFrozen": false,
+    "IsBlockTicking": true,
+    "IsCompassUpdating": true,
+    "IsFallDamageEnabled": true,
+    "IsGameTimePaused": false,
+    "IsObjectiveMarkersEnabled": true,
+    "IsPvpEnabled": false,
+    "IsSavingChunks": true,
+    "IsSavingPlayers": true,
+    "IsSpawningNPC": true,
+    "IsSpawnMarkersEnabled": true,
+    "IsTicking": true,
+    "IsUnloadingChunks": true,
+    "ResourceStorage": {
+      "Type": "Hytale"
+    },
+    "SaveNewChunks": true,
+    "Version": 4,
+    "WorldGen": {
+      "Name": "Default",
+      "Type": "Hytale"
+    },
+    "WorldMap": {
+      "Type": "WorldGen"
+    }
+  }
+}"
+`;

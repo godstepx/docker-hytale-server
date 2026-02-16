@@ -10,13 +10,17 @@
     "build:healthcheck": "bun build ./src/healthcheck.ts --compile --target=bun-linux-x64-baseline --outfile dist/healthcheck",
     "dev": "bun run src/entrypoint.ts",
     "dev:healthcheck": "bun run src/healthcheck.ts",
+    "test": "bun test",
     "lint": "tsc --noEmit",
     "format": "prettier --write src/",
     "format:check": "prettier --check src/"
   },
   "devDependencies": {
-    "@types/bun": "latest",
-    "prettier": "^3.2.4",
+    "@types/bun": "1.3.6",
+    "prettier": "^3.8.0",
     "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "@fastify/deepmerge": "^3.1.0"
   }
 }

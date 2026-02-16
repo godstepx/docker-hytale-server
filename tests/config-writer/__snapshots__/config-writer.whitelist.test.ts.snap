@@ -1,0 +1,21 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`config writer (whitelist) patch 1`] = `
+"{
+  "enabled": true,
+  "list": [
+    "alice",
+    "bob",
+    "charlie"
+  ]
+}"
+`;
+
+exports[`config writer (whitelist) override 1`] = `
+"{
+  "enabled": true,
+  "list": [
+    "override"
+  ]
+}"
+`;
